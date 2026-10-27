@@ -60,7 +60,7 @@ namespace Harley
         public bool HasTts => _autoTts || (onSpeak != null && onSpeak.GetPersistentEventCount() > 0);
         public bool HasDictation => _autoDictation || (onStartListening != null && onStartListening.GetPersistentEventCount() > 0);
 
-        float _listenStarted, _micStoppedAt;
+        float _listenStarted, _micStoppedAt, _listenEndedAt = -999f;
         float _speakEndsAt, _speakStarted, _speakDuration;
         float _subtitleHideAt;
         float _subtitleAlpha;
@@ -80,6 +80,12 @@ namespace Harley
 
         void Awake()
         {
+            // Unassigned fields can be Unity "fake null" objects in the Editor: make them real null so ?. is safe.
+            if (!sounds) sounds = null;
+            if (!ttsAudio) ttsAudio = null;
+            if (!subtitle) subtitle = null;
+            if (!subtitleBackground) subtitleBackground = null;
+            if (!head) head = null;
             _mpb = new MaterialPropertyBlock();
             if (subtitleBackground != null && subtitleBackground.sharedMaterial != null && subtitleBackground.sharedMaterial.HasProperty(ColorId))
                 _bgColor = subtitleBackground.sharedMaterial.GetColor(ColorId);
@@ -90,6 +96,11 @@ namespace Harley
         {
             if (head == null && Camera.main != null) head = Camera.main.transform;
             if (autoConnectVoiceSDK) AutoConnect();
+#if UNITY_ANDROID && !UNITY_EDITOR
+            // Speech-to-text needs the microphone: ask once, up front.
+            if (HasDictation && !UnityEngine.Android.Permission.HasUserAuthorizedPermission(UnityEngine.Android.Permission.Microphone))
+                UnityEngine.Android.Permission.RequestUserPermission(UnityEngine.Android.Permission.Microphone);
+#endif
         }
 
         // ---------- Voice SDK auto-connect ----------
@@ -185,6 +196,7 @@ namespace Harley
         {
             if (!IsListening) return;
             IsListening = false;
+            _listenEndedAt = Time.time;
             if (_autoDictation) InvokeSafe(_dictDeactivate, _dictation);
             onStopListening?.Invoke();
             ListeningChanged?.Invoke(false);
@@ -194,9 +206,19 @@ namespace Harley
         /// <summary>Dictation's "full transcription" lands here.</summary>
         public void ReceiveTranscript(string text)
         {
+            // Only while listening, or just after (the final words can arrive a moment after the mic closes).
             bool was = IsListening;
+            if (!was && Time.time - _listenEndedAt > 3f) return;
+
             IsListening = false;
+            _listenEndedAt = Time.time;
+            if (_autoDictation) InvokeSafe(_dictDeactivate, _dictation); // one sentence per Talk: don't keep the mic open
             if (was) { onStopListening?.Invoke(); ListeningChanged?.Invoke(false); }
+            Deliver(text);
+        }
+
+        void Deliver(string text)
+        {
             if (string.IsNullOrWhiteSpace(text)) { _subtitleHideAt = Time.time + 0.5f; return; }
             ShowText(text.Trim(), partialColor, false);
             _subtitleHideAt = Time.time + 1.5f;
@@ -212,7 +234,7 @@ namespace Harley
         }
 
         /// <summary>For testing in the Editor or from a UI field: pretend the player said this.</summary>
-        public void SimulatePlayerSaid(string text) => ReceiveTranscript(text);
+        public void SimulatePlayerSaid(string text) => Deliver(text);
 
         // ---------- speaking ----------
 

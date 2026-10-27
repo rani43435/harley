@@ -67,6 +67,18 @@ namespace Harley
             if (!sounds) sounds = GetComponentInChildren<CompanionSounds>();
             if (!tools) tools = GetComponentInChildren<CompanionTools>();
 
+            // Missing parts can be Unity "fake null" objects in the Editor: make them real null so ?. is safe.
+            if (!claude) claude = null;
+            if (!eyes) eyes = null;
+            if (!movement) movement = null;
+            if (!visual) visual = null;
+            if (!voice) voice = null;
+            if (!interaction) interaction = null;
+            if (!memory) memory = null;
+            if (!room) room = null;
+            if (!sounds) sounds = null;
+            if (!tools) tools = null;
+
             if (claude && config) claude.config = config;
             if (tools)
             {
@@ -109,6 +121,7 @@ namespace Harley
 
         void OnDisable()
         {
+            _requestRunning = false; // a coroutine stopped mid-request must not block Harley forever
             if (voice)
             {
                 voice.Transcribed -= OnPlayerSaid;
@@ -174,8 +187,9 @@ namespace Harley
                 _wasSpeaking = voice.IsSpeaking;
             }
 
-            // Doze off when ignored
-            if (!_asleep && interaction && interaction.IdleSeconds > sleepAfterSeconds && !_requestRunning && voice && !voice.IsSpeaking && !voice.IsListening)
+            // Doze off when ignored (in the window app only when it can't watch your screen)
+            bool canWatch = mode == CompanionMode.Window && eyes != null && eyes.CanSee;
+            if (!_asleep && !canWatch && interaction && interaction.IdleSeconds > sleepAfterSeconds && !_requestRunning && voice && !voice.IsSpeaking && !voice.IsListening)
             {
                 _asleep = true;
                 visual?.SetEmotion(Emotion.Sleepy);
@@ -290,7 +304,9 @@ namespace Harley
             visual?.Squish(6f);
             visual?.FlashEmotion(Emotion.Surprised, 1.5f);
             visual?.Burst(16, visual.lavender);
-            TryEventCall("[event] The player just threw you across the room! You bounced and landed. React (dizzy, thrilled or outraged, your call).", 0.5f);
+            TryEventCall(mode == CompanionMode.Window
+                ? "[event] The player just flung you around your window! You bounced off the edges and landed. React (dizzy, thrilled or outraged, your call)."
+                : "[event] The player just threw you across the room! You bounced and landed. React (dizzy, thrilled or outraged, your call).", 0.5f);
         }
 
         void TryEventCall(string text, float cooldownScale = 1f)
@@ -366,7 +382,7 @@ namespace Harley
                 {
                     visual?.FlashEmotion(Emotion.Sad, 2.5f);
                     sounds?.Play(Sfx.ChirpDown, 1f, 0.6f);
-                    voice?.ShowStatus(error.StartsWith("No API key", StringComparison.Ordinal) ? "(no API key)" : "(I can't reach my brain right now)", 3f);
+                    voice?.ShowStatus(ErrorStatus(error), 4f);
                 }
                 yield break;
             }
@@ -377,12 +393,25 @@ namespace Harley
             // Optional comment with nothing to say: stay quiet and forget it.
             if (optional && string.IsNullOrWhiteSpace(r.say)) yield break;
 
-            _history.Add(new ChatTurn { fromUser = true, text = image != null ? userText + "\n(camera view was attached)" : userText });
+            _history.Add(new ChatTurn { fromUser = true, text = image != null ? userText + "\n(a picture of what they saw was attached)" : userText });
             _history.Add(new ChatTurn { fromUser = false, text = reply });
             TrimHistory();
 
             _lastReplyWantsAnswer = !optional;
             Apply(r);
+        }
+
+        /// <summary>A short, useful line above Harley's head when something goes wrong (no console on the headset).</summary>
+        static string ErrorStatus(string error)
+        {
+            if (error.StartsWith("No API key", StringComparison.Ordinal)) return "(no API key: add it in the config)";
+            if (error.Contains("HTTP 401") || error.Contains("authentication_error")) return "(the API key is wrong)";
+            if (error.Contains("HTTP 403")) return "(this API key isn't allowed to do that)";
+            if (error.Contains("HTTP 429")) return "(too many requests, give me a moment)";
+            if (error.Contains("HTTP 529") || error.Contains("overloaded")) return "(Claude is busy, try again)";
+            if (error.Contains("HTTP 400")) return "(my request was wrong: see the log)";
+            if (error.Contains("HTTP 0") || error.Contains("Cannot resolve") || error.Contains("Cannot connect")) return "(no internet)";
+            return "(I can't reach my brain right now)";
         }
 
         void OnToolStart(string toolName)

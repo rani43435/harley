@@ -115,16 +115,43 @@ namespace Harley
         /// <summary>
         /// Looks something up on the web with Claude's web search tool and returns a short plain-text answer.
         /// fallbackCity / fallbackCountry: the player's guessed location, used when Home City isn't set.
+        /// If the configured tool version or model is refused, it retries with the long-standing web search version.
         /// </summary>
         public IEnumerator SearchWeb(string query, Action<string> done, string fallbackCity = "", string fallbackCountry = "")
         {
             if (!HasKey(e => done?.Invoke("Search failed: " + e))) yield break;
 
+            string model = string.IsNullOrWhiteSpace(config.searchModel) ? config.model : config.searchModel;
+            var attempts = new List<(string model, string toolType)> { (model, config.webSearchToolType) };
+            if (config.webSearchToolType != "web_search_20250305") attempts.Add((model, "web_search_20250305"));
+            if (model != config.model) attempts.Add((config.model, "web_search_20250305"));
+
+            string lastError = null;
+            foreach (var attempt in attempts)
+            {
+                string answer = null;
+                lastError = null;
+                yield return SearchOnce(query, attempt.model, attempt.toolType, fallbackCity, fallbackCountry, a => answer = a, e => lastError = e);
+                if (lastError == null)
+                {
+                    done?.Invoke(string.IsNullOrWhiteSpace(answer) ? "The search found nothing useful." : answer.Trim());
+                    yield break;
+                }
+                // Only a refused request (bad tool version / model) is worth another try.
+                if (!lastError.StartsWith("HTTP 400", StringComparison.Ordinal) && !lastError.StartsWith("HTTP 404", StringComparison.Ordinal)) break;
+                Debug.LogWarning("[Harley] Web search attempt refused (" + attempt.model + ", " + attempt.toolType + "): " + lastError);
+            }
+            done?.Invoke("Search failed: " + lastError);
+        }
+
+        IEnumerator SearchOnce(string query, string model, string toolType, string fallbackCity, string fallbackCountry,
+                               Action<string> ok, Action<string> fail)
+        {
             var tool = MiniJson.Obj(
-                "type", config.webSearchToolType,
+                "type", toolType,
                 "name", "web_search",
                 "max_uses", Mathf.Clamp(config.maxSearchesPerQuestion, 1, 5));
-            if (string.CompareOrdinal(config.webSearchToolType, "web_search_20260209") >= 0)
+            if (string.CompareOrdinal(toolType, "web_search_20260209") >= 0)
                 tool["allowed_callers"] = new List<object> { "direct" };
             string city = !string.IsNullOrWhiteSpace(config.homeCity) ? config.homeCity.Split(',')[0].Trim() : (fallbackCity ?? "").Trim();
             string country = !string.IsNullOrWhiteSpace(config.countryCode) ? config.countryCode.Trim() : (fallbackCountry ?? "").Trim();
@@ -149,7 +176,7 @@ namespace Harley
             for (int round = 0; round < 3; round++) // pause_turn can ask us to continue
             {
                 var body = MiniJson.Obj(
-                    "model", string.IsNullOrWhiteSpace(config.searchModel) ? config.model : config.searchModel,
+                    "model", model,
                     "max_tokens", 900,
                     "system", system,
                     "messages", messages,
@@ -158,15 +185,14 @@ namespace Harley
                 Dictionary<string, object> resp = null;
                 string error = null;
                 yield return Post(MiniJson.Serialize(body), r => resp = r, e => error = e);
-                if (error != null) { done?.Invoke("Search failed: " + error); yield break; }
+                if (error != null) { fail(error); yield break; }
 
                 List<object> content = resp.ListAt("content") ?? new List<object>();
                 answer.Append(CollectText(content));
                 if (resp.Str("stop_reason") != "pause_turn") break;
                 messages.Add(MiniJson.Obj("role", "assistant", "content", content)); // continue the paused turn unchanged
             }
-            string text = answer.ToString().Trim();
-            done?.Invoke(text.Length > 0 ? text : "The search found nothing useful.");
+            ok(answer.ToString());
         }
 
         // ---------- plumbing ----------

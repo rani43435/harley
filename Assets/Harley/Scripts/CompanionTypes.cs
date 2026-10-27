@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 using UnityEngine;
 
 namespace Harley
@@ -75,9 +76,42 @@ namespace Harley
                 }
                 catch { /* fall through */ }
             }
+
+            // Looks like JSON but isn't complete (e.g. cut off at max_tokens): rescue "say" instead of speaking raw JSON.
+            if (text.TrimStart().StartsWith("{", StringComparison.Ordinal))
+            {
+                var rescued = Empty();
+                rescued.say = ExtractString(text, "say");
+                return rescued;
+            }
+
             var plain = Empty();
             plain.say = text.Trim();
             return plain;
+        }
+
+        static string ExtractString(string json, string key)
+        {
+            int k = json.IndexOf("\"" + key + "\"", StringComparison.Ordinal);
+            if (k < 0) return "";
+            int colon = json.IndexOf(':', k);
+            if (colon < 0) return "";
+            int q = json.IndexOf('"', colon + 1);
+            if (q < 0) return "";
+            var sb = new StringBuilder();
+            for (int i = q + 1; i < json.Length; i++)
+            {
+                char c = json[i];
+                if (c == '\\' && i + 1 < json.Length)
+                {
+                    char n = json[++i];
+                    sb.Append(n == 'n' ? ' ' : n == 't' ? ' ' : n);
+                    continue;
+                }
+                if (c == '"') break;
+                sb.Append(c);
+            }
+            return sb.ToString().Trim();
         }
 
         static CompanionReply Empty() =>

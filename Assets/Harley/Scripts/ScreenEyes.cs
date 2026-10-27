@@ -33,14 +33,26 @@ namespace Harley
             }
         }
 
-        /// <summary>True while screen capture is running.</summary>
+#if UNITY_ANDROID && !UNITY_EDITOR
+        static AndroidJavaClass _plugin;
+        static AndroidJavaClass Plugin => _plugin ??= new AndroidJavaClass(PluginClass);
+        bool _sharing;
+        float _nextCheck;
+#endif
+
+        /// <summary>True while screen capture is running (checked at most twice a second).</summary>
         public bool IsSharing
         {
             get
             {
 #if UNITY_ANDROID && !UNITY_EDITOR
-                try { using (var c = new AndroidJavaClass(PluginClass)) return c.CallStatic<bool>("isRunning"); }
-                catch { return false; }
+                if (Time.unscaledTime >= _nextCheck)
+                {
+                    _nextCheck = Time.unscaledTime + 0.5f;
+                    try { _sharing = Plugin.CallStatic<bool>("isRunning"); }
+                    catch { _sharing = false; }
+                }
+                return _sharing;
 #else
                 return editorTestImage != null;
 #endif
@@ -53,7 +65,7 @@ namespace Harley
             get
             {
 #if UNITY_ANDROID && !UNITY_EDITOR
-                try { using (var c = new AndroidJavaClass(PluginClass)) return c.CallStatic<string>("getLastError") ?? ""; }
+                try { return Plugin.CallStatic<string>("getLastError") ?? ""; }
                 catch (System.Exception e) { return e.Message; }
 #else
                 return "";
@@ -73,12 +85,12 @@ namespace Harley
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
             if (IsSharing) return;
+            _nextCheck = 0f;
             try
             {
                 using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
                 using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
-                using (var c = new AndroidJavaClass(PluginClass))
-                    c.CallStatic("requestStart", activity);
+                    Plugin.CallStatic("requestStart", activity);
             }
             catch (System.Exception e) { Debug.LogWarning("[Harley] Screen sharing failed to start: " + e.Message); }
 #else
@@ -93,8 +105,7 @@ namespace Harley
             {
                 using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
                 using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
-                using (var c = new AndroidJavaClass(PluginClass))
-                    c.CallStatic("stop", activity);
+                    Plugin.CallStatic("stop", activity);
             }
             catch (System.Exception e) { Debug.LogWarning("[Harley] " + e.Message); }
 #endif
@@ -105,8 +116,7 @@ namespace Harley
 #if UNITY_ANDROID && !UNITY_EDITOR
             try
             {
-                using (var c = new AndroidJavaClass(PluginClass))
-                    return c.CallStatic<string>("grabJpegBase64", maxSize, jpegQuality);
+                return Plugin.CallStatic<string>("grabJpegBase64", maxSize, jpegQuality);
             }
             catch (System.Exception e)
             {
