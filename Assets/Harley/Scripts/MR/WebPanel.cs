@@ -20,9 +20,9 @@ namespace Harley
 
         public string startUrl = "https://www.google.com";
         [Tooltip("Page resolution in pixels (16:9).")]
-        public int pageWidth = 1280, pageHeight = 720;
-        [Tooltip("Bigger = larger text on pages.")]
-        public int pageDpi = 200;
+        public int pageWidth = 1920, pageHeight = 1080;
+        [Tooltip("Bigger = larger text on pages. 300 at 1920 px lays pages out like a 1024 px wide screen, drawn with 1.9x the pixels.")]
+        public int pageDpi = 300;
         [Tooltip("Thumbstick scroll speed, page pixels per second.")]
         public float scrollSpeed = 1400f;
 
@@ -31,7 +31,9 @@ namespace Harley
         public string Title => _title;
         public string Url => _url;
         /// <summary>What the page looks like right now (upside down: row 0 is the top). Null until the first frame.</summary>
-        public Texture2D PageTexture => _frames > 0 ? _tex : null;
+        public Texture PageTexture => _frames > 0 ? (Texture)_tex : null;
+        /// <summary>YouTube TV (youtube.com/tv) is open: arrows / OK / Back drive it.</summary>
+        public bool TvMode => (_url ?? "").Contains("youtube.com/tv");
         public float LastUsed { get; private set; }
 
         RawImage _page;
@@ -41,6 +43,10 @@ namespace Harley
         string _title = "", _url = "";
         float _nextInfo;
         bool _touching;
+        RenderTexture _sharp;            // the page with mipmaps: no shimmer or pixel crawl at a distance
+        GameObject _tvKeys;
+        float _nextStickKey;
+        bool _wasTv;
 
 #if UNITY_ANDROID && !UNITY_EDITOR
         AndroidJavaObject _web;
@@ -55,9 +61,9 @@ namespace Harley
             var p = go.AddComponent<WebPanel>();
             p.startUrl = url;
             p.head = head;
-            p.size = new Vector2(0.8f, 0.45f + ToolbarPx / PixelsPerMeter);
+            p.size = new Vector2(1.0f, 0.5625f + ToolbarPx / PixelsPerMeter);
             p.EnsureBuilt();
-            p.ShowInFront(0.95f, 0.05f, Windows.Count <= 1 ? 0f : 0.25f * (Windows.Count - 1));
+            p.ShowInFront(1.1f, 0.0f, Windows.Count <= 1 ? 0f : 0.3f * (Windows.Count - 1));
             return p;
         }
 
@@ -74,7 +80,18 @@ namespace Harley
             PlaceTL(AddButton(c, "Back", Back, null, 18).rect, x, y, 70, h); x += 76;
             PlaceTL(AddButton(c, "Reload", Reload, null, 18).rect, x, y, 80, h); x += 86;
             PlaceTL(AddButton(c, "Google", () => Load("https://www.google.com"), null, 18).rect, x, y, 84, h); x += 90;
-            PlaceTL(AddButton(c, "YouTube", () => Load("https://m.youtube.com"), null, 18).rect, x, y, 92, h); x += 98;
+            PlaceTL(AddButton(c, "YouTube", () => Load(YouTubeTv), null, 18).rect, x, y, 92, h); x += 98;
+
+            // YouTube TV remote (shown only on youtube.com/tv): thumbstick or these buttons move, OK selects
+            _tvKeys = new GameObject("TV Keys", typeof(RectTransform));
+            _tvKeys.transform.SetParent(c, false);
+            var tk = (RectTransform)_tvKeys.transform;
+            Place(tk, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+            float kx = x + 6;
+            foreach (var (label, code) in new[] { ("<", KeyLeft), ("^", KeyUp), ("v", KeyDown), (">", KeyRight) })
+            { int k = code; PlaceTL(AddButton(tk, label, () => Key(k), null, 22).rect, kx, y, 44, h); kx += 48; }
+            PlaceTL(AddButton(tk, "OK", () => Key(KeyEnter), primary, 18).rect, kx, y, 56, h);
+            _tvKeys.SetActive(false);
 
             float right = w - 10f;
             right -= 44; PlaceTL(AddButton(c, "X", Close, new Color(0.45f, 0.12f, 0.2f, 1f), 18).rect, right, y, 44, h); right -= 6;
@@ -99,6 +116,12 @@ namespace Harley
             _page.color = new Color(0.94f, 0.93f, 0.97f);
 
             _tex = new Texture2D(pageWidth, pageHeight, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+            _sharp = new RenderTexture(pageWidth, pageHeight, 0, RenderTextureFormat.ARGB32)
+            {
+                useMipMap = true, autoGenerateMips = true, filterMode = FilterMode.Trilinear, anisoLevel = 8,
+                wrapMode = TextureWrapMode.Clamp, name = "Harley Page"
+            };
+            _sharp.Create();
             CreateWebView();
             LastUsed = Time.unscaledTime;
         }
@@ -139,9 +162,10 @@ namespace Harley
                 _lastFrame = frame;
                 _tex.LoadRawTextureData(_bufferAddress, pageWidth * pageHeight * 4);
                 _tex.Apply(false);
+                Graphics.Blit(_tex, _sharp); // builds the mipmaps
                 if (_frames++ == 0)
                 {
-                    _page.texture = _tex;
+                    _page.texture = _sharp;
                     _page.color = Color.white;
                     if (_placeholder) _placeholder.gameObject.SetActive(false);
                 }
@@ -153,6 +177,12 @@ namespace Harley
                 _url = _web.Call<string>("getUrl") ?? "";
                 bool loading = _web.Call<bool>("isLoading");
                 if (_titleLabel) _titleLabel.text = (loading ? "Loading...  " : "") + (_title.Length > 0 ? _title : _url);
+            }
+            if (TvMode != _wasTv)
+            {
+                _wasTv = TvMode;
+                if (_tvKeys) _tvKeys.SetActive(_wasTv);
+                if (_titleLabel) _titleLabel.gameObject.SetActive(!_wasTv);
             }
 #else
             if (_titleLabel) _titleLabel.text = _title;
@@ -197,6 +227,15 @@ namespace Harley
         public override void PointerScroll(PanelPointer p, Vector2 amount)
         {
             LastUsed = Time.unscaledTime;
+            if (TvMode)
+            {
+                // Thumbstick = TV remote arrows, one press per flick (repeats while held)
+                if (Time.unscaledTime < _nextStickKey) return;
+                _nextStickKey = Time.unscaledTime + 0.28f;
+                if (Mathf.Abs(amount.x) > Mathf.Abs(amount.y)) Key(amount.x > 0 ? KeyRight : KeyLeft);
+                else Key(amount.y > 0 ? KeyUp : KeyDown);
+                return;
+            }
 #if UNITY_ANDROID && !UNITY_EDITOR
             _web?.Call("scroll", 0f, -amount.y * scrollSpeed * Time.unscaledDeltaTime);
 #endif
@@ -226,8 +265,21 @@ namespace Harley
 #endif
         }
 
+        const string YouTubeTv = "https://www.youtube.com/tv";
+        // Android key codes
+        const int KeyUp = 19, KeyDown = 20, KeyLeft = 21, KeyRight = 22, KeyEnter = 66, KeyEscape = 111;
+
+        public void Key(int code)
+        {
+            LastUsed = Time.unscaledTime;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            _web?.Call("key", code);
+#endif
+        }
+
         void Back()
         {
+            if (TvMode) { Key(KeyEscape); return; } // YouTube TV's own back
 #if UNITY_ANDROID && !UNITY_EDITOR
             _web?.Call("goBack");
 #endif
@@ -276,6 +328,7 @@ namespace Harley
             _web = null;
 #endif
             if (_tex) Destroy(_tex);
+            if (_sharp) { _sharp.Release(); Destroy(_sharp); }
         }
     }
 }

@@ -53,7 +53,7 @@ namespace Harley
 
             y += 66f;
             PlaceTL(AddButton(c, "Browser", () => OpenWeb("https://www.google.com"), null, 22).rect, 20, y, 205, 48);
-            PlaceTL(AddButton(c, "YouTube", () => OpenWeb("https://m.youtube.com"), null, 22).rect, 235, y, 205, 48);
+            PlaceTL(AddButton(c, "YouTube", () => OpenWeb("https://www.youtube.com/tv"), null, 22).rect, 235, y, 205, 48);
 
             y += 58f;
             var cfg = brain != null ? brain.config : null;

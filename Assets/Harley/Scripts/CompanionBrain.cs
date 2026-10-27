@@ -408,9 +408,11 @@ namespace Harley
             if (error.Contains("HTTP 401") || error.Contains("authentication_error")) return "(the API key is wrong)";
             if (error.Contains("HTTP 403")) return "(this API key isn't allowed to do that)";
             if (error.Contains("HTTP 429")) return "(too many requests, give me a moment)";
-            if (error.Contains("HTTP 529") || error.Contains("overloaded")) return "(Claude is busy, try again)";
+            if (error.Contains("HTTP 529") || error.Contains("overloaded")) return "(the AI is busy, try again)";
             if (error.Contains("HTTP 400")) return "(my request was wrong: see the log)";
-            if (error.Contains("HTTP 0") || error.Contains("Cannot resolve") || error.Contains("Cannot connect")) return "(no internet)";
+            if (error.Contains("Cannot resolve") || error.Contains("Cannot connect")) return "(no internet)";
+            if (error.Contains("HTTP 0") || error.Contains("timeout") || error.Contains("Timeout")) return "(my brain is slow right now, try again)";
+            if (error.Contains("HTTP 503") || error.Contains("HTTP 500")) return "(the AI is busy, try again)";
             return "(I can't reach my brain right now)";
         }
 

@@ -29,6 +29,34 @@ namespace Harley
         public static IEnumerator Send(CompanionConfig config, string system, List<ChatTurn> turns, CompanionTools tools,
                                        Action<string> onText, Action<string> onError, Action<string> onToolStart)
         {
+            bool hasImage = turns.Exists(t => !string.IsNullOrEmpty(t.jpegBase64));
+            string firstError = null;
+            bool done = false;
+            // Pictures on the free tier can be slow or refused when Google is busy: then answer without the picture.
+            yield return SendOnce(config, system, turns, tools, t => { done = true; onText?.Invoke(t); }, e => firstError = e, onToolStart,
+                                  hasImage ? ImageTimeout : config.requestTimeout);
+            if (done || firstError == null) yield break;
+            if (hasImage && IsSlowOrBusy(firstError))
+            {
+                Debug.LogWarning("[Harley] Gemini with picture failed (" + Short(firstError) + "), trying without it.");
+                var textOnly = turns.ConvertAll(t => new ChatTurn { fromUser = t.fromUser, text = t.text });
+                if (textOnly.Count > 0) textOnly[textOnly.Count - 1].text += "\n(You couldn't see anything this time; don't mention a picture.)";
+                yield return SendOnce(config, system, textOnly, tools, onText, onError, onToolStart, config.requestTimeout);
+                yield break;
+            }
+            onError?.Invoke(firstError);
+        }
+
+        const int ImageTimeout = 18;
+
+        static bool IsSlowOrBusy(string e) =>
+            e.Contains("HTTP 0") || e.Contains("HTTP 503") || e.Contains("HTTP 500") || e.Contains("timeout") || e.Contains("Timeout") || e.Contains("HTTP 429");
+
+        static string Short(string e) { int n = e.IndexOf('\n'); return n > 0 ? e.Substring(0, n) : e; }
+
+        static IEnumerator SendOnce(CompanionConfig config, string system, List<ChatTurn> turns, CompanionTools tools,
+                                    Action<string> onText, Action<string> onError, Action<string> onToolStart, int timeout)
+        {
             var contents = BuildContents(turns);
             var functions = new List<object>();
             if (tools != null)
@@ -48,7 +76,7 @@ namespace Harley
 
                 Dictionary<string, object> resp = null;
                 string error = null;
-                yield return Generate(config, MiniJson.Serialize(body), r => resp = r, e => error = e);
+                yield return Generate(config, MiniJson.Serialize(body), r => resp = r, e => error = e, timeout);
                 if (error != null) { onError?.Invoke(error); yield break; }
 
                 var cand = First(resp.ListAt("candidates"));
@@ -120,16 +148,24 @@ namespace Harley
 
         // ---------- plumbing ----------
 
-        static IEnumerator Generate(CompanionConfig config, string json, Action<Dictionary<string, object>> ok, Action<string> fail)
+        /// <summary>Tried in order when a model is busy (503) or gone (404). The configured model comes first.</summary>
+        static readonly string[] Fallbacks = { "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-flash-lite-latest" };
+
+        static IEnumerator Generate(CompanionConfig config, string json, Action<Dictionary<string, object>> ok, Action<string> fail, int timeout = 0)
         {
             if (string.IsNullOrWhiteSpace(config.geminiApiKey)) { fail("No API key. Put your Gemini key in the CompanionConfig asset."); yield break; }
 
-            for (int attempt = 0; attempt < 2; attempt++)
+            var models = new List<string>();
+            string first = _resolvedModel ?? (string.IsNullOrWhiteSpace(config.geminiModel) ? Fallbacks[0] : config.geminiModel.Trim());
+            models.Add(first);
+            foreach (var f in Fallbacks) if (!models.Contains(f)) models.Add(f);
+
+            for (int attempt = 0; attempt < models.Count; attempt++)
             {
-                string model = _resolvedModel ?? (string.IsNullOrWhiteSpace(config.geminiModel) ? "gemini-flash-latest" : config.geminiModel.Trim());
+                string model = models[attempt];
                 long code = 0;
                 string raw = null, err = null;
-                yield return Post(config, Api + "models/" + model + ":generateContent", json, (c, r, e) => { code = c; raw = r; err = e; });
+                yield return Post(config, Api + "models/" + model + ":generateContent", json, (c, r, e) => { code = c; raw = r; err = e; }, timeout);
 
                 if (err == null)
                 {
@@ -140,12 +176,18 @@ namespace Harley
                     yield break;
                 }
 
-                // Unknown model: find a current Flash model and try once more.
-                if (code == 404 && attempt == 0)
+                // Busy or gone: try the next model (a timeout is not retried here, the caller decides).
+                bool next = code == 503 || code == 500 || code == 404 || (code == 429 && raw != null && raw.Contains("model"));
+                if (next && attempt + 1 < models.Count)
+                {
+                    Debug.LogWarning($"[Harley] Gemini {model}: HTTP {code}, trying {models[attempt + 1]}");
+                    continue;
+                }
+                if (code == 404 && _resolvedModel == null)
                 {
                     string found = null;
                     yield return FindFlashModel(config, m => found = m);
-                    if (found != null && found != model) { _resolvedModel = found; Debug.Log("[Harley] Using Gemini model " + found); continue; }
+                    if (found != null && !models.Contains(found)) { _resolvedModel = found; models.Add(found); Debug.Log("[Harley] Using Gemini model " + found); continue; }
                 }
                 fail(err);
                 yield break;
@@ -177,7 +219,7 @@ namespace Harley
             }
         }
 
-        static IEnumerator Post(CompanionConfig config, string url, string json, Action<long, string, string> done)
+        static IEnumerator Post(CompanionConfig config, string url, string json, Action<long, string, string> done, int timeout = 0)
         {
             using (var req = new UnityWebRequest(url, UnityWebRequest.kHttpVerbPOST))
             {
@@ -185,7 +227,7 @@ namespace Harley
                 req.downloadHandler = new DownloadHandlerBuffer();
                 req.SetRequestHeader("content-type", "application/json");
                 req.SetRequestHeader("x-goog-api-key", config.geminiApiKey.Trim());
-                req.timeout = Mathf.Max(5, config.requestTimeout);
+                req.timeout = Mathf.Max(5, timeout > 0 ? timeout : config.requestTimeout);
                 yield return req.SendWebRequest();
                 string raw = req.downloadHandler != null ? req.downloadHandler.text : "";
                 if (req.result != UnityWebRequest.Result.Success)

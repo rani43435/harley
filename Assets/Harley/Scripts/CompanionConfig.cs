@@ -20,8 +20,8 @@ namespace Harley
 
         [Header("Gemini (free tier: aistudio.google.com > Get API key)")]
         public string geminiApiKey = "";
-        [Tooltip("gemini-flash-latest = Google's current fast model. If a name stops working Harley picks a current Flash model by itself.")]
-        public string geminiModel = "gemini-flash-latest";
+        [Tooltip("gemini-3.5-flash answers in ~2 s on the free tier. If it is busy or gone Harley tries other Flash models by itself.")]
+        public string geminiModel = "gemini-3.5-flash";
 
         [Header("Claude API  (never commit this asset to git)")]
         public string apiKey = "";
@@ -30,7 +30,7 @@ namespace Harley
         [Tooltip("Upper bound for one reply. Replies are 1-2 short sentences, so this is plenty.")]
         public int maxTokens = 600;
         [Tooltip("Seconds before a request is given up.")]
-        public int requestTimeout = 40;
+        public int requestTimeout = 25;
 
         [Header("Voice (free, wit.ai)")]
         [Tooltip("wit.ai > New App (choose the language you speak) > Management > Settings > Client Access Token. Empty = type instead of talking, babble voice.")]

@@ -55,6 +55,19 @@ public class HarleyWebView {
     private View fullscreenView;
     private WebChromeClient.CustomViewCallback fullscreenCallback;
     private long downTime;
+    private String normalUa;
+
+    /** youtube.com/tv only opens for TVs: same Samsung TV browser identity as the Ambient Video app. */
+    private static final String TV_UA = "Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) 76.0.3809.146/6.0 TV Safari/537.36";
+
+    private static boolean isTv(String u) { return u != null && u.contains("youtube.com/tv"); }
+
+    /** Switch the browser identity before loading a page (TV for YouTube TV, normal otherwise). */
+    private void uaFor(String u) {
+        if (web == null) return;
+        String want = isTv(u) ? TV_UA : normalUa;
+        if (!want.equals(web.getSettings().getUserAgentString())) web.getSettings().setUserAgentString(want);
+    }
 
     public HarleyWebView(final Activity activity, int width, int height, final int dpi, final String startUrl) {
         this.activity = activity;
@@ -98,9 +111,16 @@ public class HarleyWebView {
         s.setBuiltInZoomControls(false);
         s.setSupportMultipleWindows(false);
         s.setJavaScriptCanOpenWindowsAutomatically(false);
+        normalUa = s.getUserAgentString();
+        web.setInitialScale(0);
 
         web.setWebViewClient(new WebViewClient() {
             @Override public void onPageStarted(WebView v, String u, android.graphics.Bitmap icon) { loading = true; url = u; }
+            @Override public boolean shouldOverrideUrlLoading(WebView v, android.webkit.WebResourceRequest r) {
+                String u = r.getUrl().toString();
+                if (isTv(u) != isTv(v.getUrl())) { uaFor(u); v.loadUrl(u); return true; }
+                return false;
+            }
             @Override public void onPageFinished(WebView v, String u) { loading = false; url = u; String t = v.getTitle(); title = t != null ? t : ""; }
         });
         web.setWebChromeClient(new WebChromeClient() {
@@ -118,7 +138,7 @@ public class HarleyWebView {
         root.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         presentation.setContentView(root);
         presentation.show();
-        if (startUrl != null && startUrl.length() > 0) web.loadUrl(startUrl);
+        if (startUrl != null && startUrl.length() > 0) { uaFor(startUrl); web.loadUrl(startUrl); }
         ready = true;
     }
 
@@ -173,7 +193,7 @@ public class HarleyWebView {
     public boolean isLoading() { return loading; }
 
     public void loadUrl(final String u) {
-        ui(new Runnable() { @Override public void run() { if (web != null) { exitFullscreen(); web.loadUrl(u); } } });
+        ui(new Runnable() { @Override public void run() { if (web != null) { exitFullscreen(); uaFor(u); web.loadUrl(u); } } });
     }
 
     public void goBack() {
@@ -198,6 +218,20 @@ public class HarleyWebView {
             ev.setSource(InputDevice.SOURCE_TOUCHSCREEN);
             root.dispatchTouchEvent(ev);
             ev.recycle();
+        } });
+    }
+
+    public boolean isTvMode() { return isTv(url); }
+
+    /** Presses a key on the page (YouTube TV is driven by arrows, Enter and Back). */
+    public void key(final int keyCode) {
+        ui(new Runnable() { @Override public void run() {
+            View target = fullscreenView != null ? fullscreenView : web;
+            if (target == null) return;
+            target.requestFocus();
+            long now = SystemClock.uptimeMillis();
+            target.dispatchKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0));
+            target.dispatchKeyEvent(new KeyEvent(now, now + 30, KeyEvent.ACTION_UP, keyCode, 0));
         } });
     }
 
