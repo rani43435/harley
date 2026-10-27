@@ -39,7 +39,7 @@ namespace Harley
         public bool weather = true;
 
         [Header("Where you live (weather, local news)")]
-        [Tooltip("City, optionally with region to pick the right one, e.g. \"Münster, Hessen\".")]
+        [Tooltip("Optional. Empty = Harley guesses your city from your internet connection. City, optionally with region, e.g. \"Münster, Hessen\".")]
         public string homeCity = "";
         [Tooltip("Two-letter country code, e.g. DE.")]
         public string countryCode = "";

@@ -114,8 +114,9 @@ namespace Harley
 
         /// <summary>
         /// Looks something up on the web with Claude's web search tool and returns a short plain-text answer.
+        /// fallbackCity / fallbackCountry: the player's guessed location, used when Home City isn't set.
         /// </summary>
-        public IEnumerator SearchWeb(string query, Action<string> done)
+        public IEnumerator SearchWeb(string query, Action<string> done, string fallbackCity = "", string fallbackCountry = "")
         {
             if (!HasKey(e => done?.Invoke("Search failed: " + e))) yield break;
 
@@ -125,13 +126,14 @@ namespace Harley
                 "max_uses", Mathf.Clamp(config.maxSearchesPerQuestion, 1, 5));
             if (string.CompareOrdinal(config.webSearchToolType, "web_search_20260209") >= 0)
                 tool["allowed_callers"] = new List<object> { "direct" };
-            if (!string.IsNullOrWhiteSpace(config.homeCity) || !string.IsNullOrWhiteSpace(config.countryCode))
+            string city = !string.IsNullOrWhiteSpace(config.homeCity) ? config.homeCity.Split(',')[0].Trim() : (fallbackCity ?? "").Trim();
+            string country = !string.IsNullOrWhiteSpace(config.countryCode) ? config.countryCode.Trim() : (fallbackCountry ?? "").Trim();
+            if (city.Length > 0 || country.Length == 2)
             {
                 var loc = MiniJson.Obj("type", "approximate");
-                string city = config.homeCity.Split(',')[0].Trim();
                 if (city.Length > 0) loc["city"] = city;
-                if (config.countryCode.Trim().Length == 2) loc["country"] = config.countryCode.Trim().ToUpperInvariant();
-                tool["user_location"] = loc;
+                if (country.Length == 2) loc["country"] = country.ToUpperInvariant();
+                tool["user_location"] = loc; // so "weather" or "news" searches are about the player's area
             }
 
             var messages = new List<object>

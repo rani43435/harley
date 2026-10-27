@@ -13,14 +13,66 @@ namespace Harley
     ///  - web_search: news, sports, prices, anything recent (Claude's web search tool)
     ///  - get_weather: live weather and 3-day forecast (Open-Meteo, free, no key)
     /// Claude decides when to use them.
+    ///
+    /// Where you are: Quest has no GPS, so if Home City is empty in the config,
+    /// Harley guesses your city from your internet connection once per session
+    /// (ipwho.is, free). It's approximate (often the nearest bigger city).
     /// </summary>
     public class CompanionTools : MonoBehaviour
     {
         public CompanionConfig config;
         public ClaudeClient claude;
+        [Tooltip("Guess the player's city from the internet connection when Home City is empty.")]
+        public bool detectLocation = true;
+
+        /// <summary>City guessed from the internet connection, e.g. "Darmstadt, Hesse (DE)". Empty until known.</summary>
+        public string DetectedPlace { get; private set; } = "";
+        public string DetectedCity { get; private set; } = "";
+        public string DetectedCountryCode { get; private set; } = "";
+        double _detLat, _detLon;
+        bool _detecting;
 
         double _cachedLat, _cachedLon;
         string _cachedPlace, _cachedLabel;
+
+        IEnumerator Start()
+        {
+            if (detectLocation && config != null && string.IsNullOrWhiteSpace(config.homeCity)
+                && Mathf.Abs(config.homeLatitude) < 0.001f && Mathf.Abs(config.homeLongitude) < 0.001f)
+                yield return DetectLocation();
+        }
+
+        /// <summary>Approximate location from the internet connection (no GPS on Quest).</summary>
+        public IEnumerator DetectLocation()
+        {
+            if (_detecting || DetectedPlace.Length > 0) yield break;
+            _detecting = true;
+            Dictionary<string, object> r = null;
+            yield return GetJson("https://ipwho.is/", d => r = d, _ => { });
+            if (r != null && r.TryGetValue("success", out var ok) && ok is bool b && b && !string.IsNullOrEmpty(r.Str("city")))
+            {
+                _detLat = r.Num("latitude");
+                _detLon = r.Num("longitude");
+                DetectedCity = r.Str("city");
+                DetectedCountryCode = r.Str("country_code") ?? "";
+                DetectedPlace = DetectedCity + ", " + (r.Str("region") ?? "") + " (" + DetectedCountryCode + ")";
+            }
+            else
+            {
+                // Fallback service: only use it if it knows the city.
+                Dictionary<string, object> g = null;
+                yield return GetJson("https://get.geojs.io/v1/ip/geo.json", d => g = d, _ => { });
+                if (g != null && !string.IsNullOrEmpty(g.Str("city")))
+                {
+                    _detLat = g.Num("latitude");
+                    _detLon = g.Num("longitude");
+                    DetectedCity = g.Str("city");
+                    DetectedCountryCode = g.Str("country_code") ?? "";
+                    DetectedPlace = DetectedCity + ", " + (g.Str("region") ?? "") + " (" + DetectedCountryCode + ")";
+                }
+            }
+            _detecting = false;
+        }
 
         public List<object> Definitions()
         {
@@ -56,7 +108,7 @@ namespace Harley
             {
                 case "web_search":
                     if (claude == null) { done("Search is not available."); yield break; }
-                    yield return claude.SearchWeb(input.Str("query") ?? "", done);
+                    yield return claude.SearchWeb(input.Str("query") ?? "", done, DetectedCity, DetectedCountryCode);
                     break;
                 case "get_weather":
                     yield return Weather(input.Str("place"), done);
@@ -83,9 +135,22 @@ namespace Harley
                 lon = config.homeLongitude;
                 if (string.IsNullOrWhiteSpace(label)) label = "home";
             }
+            else if (home && string.IsNullOrWhiteSpace(place))
+            {
+                // No city in the config: use the location from the internet connection.
+                if (DetectedPlace.Length == 0 && detectLocation) yield return DetectLocation();
+                if (DetectedPlace.Length == 0)
+                {
+                    done("I couldn't tell where the player is. Ask them which city they mean.");
+                    yield break;
+                }
+                lat = _detLat;
+                lon = _detLon;
+                label = DetectedPlace + " (guessed from the internet connection)";
+            }
             else if (string.IsNullOrWhiteSpace(place))
             {
-                done("The player's home city isn't set. Ask them which city they mean (they can also set Home City in Harley's settings).");
+                done("Ask the player which city they mean.");
                 yield break;
             }
             else if (place == _cachedPlace)

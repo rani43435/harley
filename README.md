@@ -60,9 +60,11 @@ preview/harley-preview.html  web preview of the character
    Keep XR off for Android (*Project Settings > XR Plug-in Management*), so Quest opens Harley as a window.
 2. Copy `Assets/Harley` into the project. If asked, import **TMP Essentials**.
 3. Menu **Harley > Create Window App Scene**, then save the scene and add it to the build.
-4. Menu **Harley > Select Config**: paste your Claude API key (console.anthropic.com), and set
-   **Home City** (e.g. `Münster, Hessen`) and **Country Code** (`DE`) for weather and local news.
+4. Menu **Harley > Select Config**: paste your Claude API key (console.anthropic.com).
    The config asset is git-ignored on purpose.
+   Weather and local news work without setup: Quest has no GPS, so Harley guesses your city from your
+   internet connection (often the nearest bigger city). For your exact town, set **Home City**
+   (e.g. `Münster, Hessen`) and **Country Code** (`DE`).
 5. *Player Settings > Android*: Internet Access = **Require**, Scripting Backend **IL2CPP**, Target Architecture **ARM64**.
 6. **Build And Run** with the headset connected (developer mode on).
 7. On the headset Harley opens as a window. Quest asks to allow screen capture: tap **Start**.

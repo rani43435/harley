@@ -434,7 +434,11 @@ namespace Harley
         {
             string now = DateTime.Now.ToString("dddd d MMMM yyyy, HH:mm", CultureInfo.InvariantCulture);
             string memoryBlock = memory != null ? memory.DescribeForPrompt() : "You don't remember anything about the player yet.";
-            string home = config != null && !string.IsNullOrWhiteSpace(config.homeCity) ? $" The player lives in {config.homeCity}." : "";
+            string home = config != null && !string.IsNullOrWhiteSpace(config.homeCity)
+                ? $" The player lives in {config.homeCity}."
+                : tools != null && tools.DetectedPlace.Length > 0
+                    ? $" The player seems to be near {tools.DetectedPlace} (guessed from their internet connection)."
+                    : "";
             bool window = mode == CompanionMode.Window;
 
             string world = window
