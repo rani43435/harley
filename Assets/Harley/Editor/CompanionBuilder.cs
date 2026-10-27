@@ -4,41 +4,43 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using TMPro;
 
-namespace AICompanion.EditorTools
+namespace Harley.EditorTools
 {
     /// <summary>
-    /// One click: builds the white & purple companion in the open scene,
-    /// creates its materials and config, and wires every reference.
-    /// Menu: AI Companion > Create Companion In Scene
+    /// One click: builds Harley in the open scene, creates its materials and
+    /// config, and wires every reference.
+    /// Menu: Harley > Create Harley In Scene
     /// </summary>
     public static class CompanionBuilder
     {
-        const string RootDir = "Assets/AICompanion";
+        const string RootDir = "Assets/Harley";
         const string MatDir = RootDir + "/Materials";
         const string ConfigPath = RootDir + "/CompanionConfig.asset";
 
         static readonly Color White = new Color(0.957f, 0.945f, 1f);    // #F4F1FF
         static readonly Color Purple = new Color(0.545f, 0.361f, 0.965f); // #8B5CF6
+        static readonly Color Lavender = new Color(0.769f, 0.710f, 0.992f); // #C4B5FD
         static readonly Color Cheek = new Color(0.96f, 0.62f, 0.85f);
         static readonly Color Bubble = new Color(0.12f, 0.06f, 0.2f, 0.82f);
 
-        [MenuItem("AI Companion/Create Companion In Scene", false, 0)]
+        [MenuItem("Harley/Create Harley In Scene", false, 0)]
         public static void Create()
         {
             EnsureFolder(RootDir);
             EnsureFolder(MatDir);
 
-            Material white = LitMaterial("Companion_White", White, 0.15f, 0.8f);
+            Material white = LitMaterial("Harley_White", White, 0.15f, 0.8f);
             // Dark base + purple emission = solid glowing purple that doesn't wash out to pink/white.
-            Material purple = LitMaterial("Companion_Purple", Purple, 1.0f, 0.75f, Purple * 0.2f);
-            Material cheek = LitMaterial("Companion_Cheek", Cheek, 0.5f, 0.4f);
-            Material glow = SpriteMaterial("Companion_Glow", Color.white);
-            Material bubble = SpriteMaterial("Companion_Bubble", Bubble);
+            Material purple = LitMaterial("Harley_Purple", Purple, 1.0f, 0.75f, Purple * 0.2f);
+            Material cheek = LitMaterial("Harley_Cheek", Cheek, 0.5f, 0.4f);
+            Material glow = SpriteMaterial("Harley_Glow", Color.white, null);
+            Material bubble = SpriteMaterial("Harley_Bubble", Bubble, null);
+            Material sparkle = SpriteMaterial("Harley_Sparkle", Color.white, SparkleTexture());
             CompanionConfig config = GetOrCreateConfig();
 
             // ---- root + brain parts ----
-            var root = new GameObject("AI Companion");
-            Undo.RegisterCreatedObjectUndo(root, "Create AI Companion");
+            var root = new GameObject("Harley");
+            Undo.RegisterCreatedObjectUndo(root, "Create Harley");
             Camera cam = Camera.main;
             root.transform.position = cam != null
                 ? cam.transform.position + Flat(cam.transform.forward) * 0.9f + Vector3.down * 0.2f
@@ -46,6 +48,8 @@ namespace AICompanion.EditorTools
 
             var claude = root.AddComponent<ClaudeClient>();
             var eyes = root.AddComponent<CompanionEyes>();
+            var room = root.AddComponent<CompanionRoom>();
+            var memory = root.AddComponent<CompanionMemory>();
             var movement = root.AddComponent<CompanionMovement>();
             var voice = root.AddComponent<CompanionVoice>();
             var interaction = root.AddComponent<CompanionInteraction>();
@@ -60,6 +64,7 @@ namespace AICompanion.EditorTools
             squash.SetParent(visualGO.transform, false);
 
             var body = Prim("Body", squash, Vector3.zero, Vector3.one * 0.2f, white);
+            var sounds = body.AddComponent<CompanionSounds>(); // sounds come from the body
             var eyeL = Prim("EyeL", squash, new Vector3(-0.038f, 0.016f, 0.088f), new Vector3(0.032f, 0.05f, 0.014f), purple);
             var eyeR = Prim("EyeR", squash, new Vector3(0.038f, 0.016f, 0.088f), new Vector3(0.032f, 0.05f, 0.014f), purple);
             var mouth = Prim("Mouth", squash, new Vector3(0f, -0.027f, 0.094f), new Vector3(0.018f, 0.006f, 0.008f), purple);
@@ -71,6 +76,7 @@ namespace AICompanion.EditorTools
             // ---- halo ----
             var haloGO = new GameObject("Halo");
             haloGO.transform.SetParent(visualGO.transform, false);
+            haloGO.transform.localPosition = new Vector3(0f, visual.haloHeight, 0f);
             var halo = haloGO.AddComponent<LineRenderer>();
             halo.sharedMaterial = glow;
             halo.widthMultiplier = 0.007f;
@@ -80,7 +86,6 @@ namespace AICompanion.EditorTools
             halo.shadowCastingMode = ShadowCastingMode.Off;
             halo.receiveShadows = false;
             halo.startColor = halo.endColor = Purple;
-            haloGO.transform.localPosition = new Vector3(0f, visual.haloHeight, 0f);
             const int segs = 48;
             halo.positionCount = segs;
             for (int i = 0; i < segs; i++)
@@ -105,6 +110,9 @@ namespace AICompanion.EditorTools
                       new[] { new GradientAlphaKey(0.8f, 0f), new GradientAlphaKey(0f, 1f) });
             trail.colorGradient = g;
             trail.emitting = false;
+
+            // ---- sparkles (on the root, so they don't shrink with the pop-in) ----
+            var sparkles = BuildSparkles(root.transform, sparkle);
 
             // ---- subtitle bubble ----
             var subGO = new GameObject("Subtitle");
@@ -137,16 +145,23 @@ namespace AICompanion.EditorTools
             visual.handR = handR.transform;
             visual.halo = halo;
             visual.trail = trail;
+            visual.sparkles = sparkles;
             visual.glowRenderers = new Renderer[] { eyeL.GetComponent<Renderer>(), eyeR.GetComponent<Renderer>(), mouth.GetComponent<Renderer>() };
             visual.movement = movement;
             visual.voice = voice;
 
+            voice.config = config;
+            voice.sounds = sounds;
             voice.subtitle = tmp;
             voice.subtitleBackground = bg.GetComponent<Renderer>();
+            sounds.config = config;
+            memory.config = config;
 
             interaction.body = body.transform;
             interaction.bodyRadius = 0.1f;
+            interaction.movement = movement;
             movement.bodyRadius = 0.1f;
+            movement.room = room;
 
             claude.config = config;
             brain.config = config;
@@ -156,8 +171,11 @@ namespace AICompanion.EditorTools
             brain.visual = visual;
             brain.voice = voice;
             brain.interaction = interaction;
+            brain.memory = memory;
+            brain.room = room;
+            brain.sounds = sounds;
 
-            eyes.passthroughCameraAccess = FindPassthroughCamera();
+            eyes.passthroughCameraAccess = FindByTypeName("PassthroughCameraAccess");
 
             EnsureLight();
 
@@ -165,16 +183,22 @@ namespace AICompanion.EditorTools
             EditorSceneManager.MarkSceneDirty(root.scene);
             Selection.activeGameObject = root;
 
-            string camNote = eyes.passthroughCameraAccess != null
-                ? "Passthrough camera found and connected."
-                : "No PassthroughCameraAccess in the scene yet. Add it (see README) and drag it into CompanionEyes.";
             string keyNote = string.IsNullOrWhiteSpace(config.apiKey)
-                ? "Paste your Claude API key into Assets/AICompanion/CompanionConfig."
-                : "API key is set.";
-            EditorUtility.DisplayDialog("AI Companion", "Companion created.\n\n" + keyNote + "\n" + camNote, "OK");
+                ? "• Paste your Claude API key: Harley > Select Config (API key)."
+                : "• API key is set.";
+            string camNote = eyes.passthroughCameraAccess != null
+                ? "• Passthrough camera connected."
+                : "• No PassthroughCameraAccess in the scene yet: add it, then drag it into CompanionEyes.";
+            string roomNote = FindByTypeName("MRUK") != null
+                ? "• Room scan (MRUK) found: Harley will know your furniture."
+                : "• No MRUK in the scene: add it so Harley knows your room.";
+            string voiceNote = FindByTypeName("AppDictationExperience") != null || FindByTypeName("TTSSpeaker") != null
+                ? "• Voice SDK found: Harley connects to it when you press Play."
+                : "• No Voice SDK yet: Harley will use its babble voice and subtitles.";
+            EditorUtility.DisplayDialog("Harley", "Harley is in your scene.\n\n" + keyNote + "\n" + camNote + "\n" + roomNote + "\n" + voiceNote, "OK");
         }
 
-        [MenuItem("AI Companion/Select Config (API key)", false, 20)]
+        [MenuItem("Harley/Select Config (API key)", false, 20)]
         public static void SelectConfig()
         {
             EnsureFolder(RootDir);
@@ -182,14 +206,86 @@ namespace AICompanion.EditorTools
             EditorGUIUtility.PingObject(Selection.activeObject);
         }
 
+        [MenuItem("Harley/Open Memory Folder", false, 40)]
+        public static void OpenMemoryFolder()
+        {
+            EditorUtility.RevealInFinder(Application.persistentDataPath);
+        }
+
         // ---------- helpers ----------
+
+        static ParticleSystem BuildSparkles(Transform parent, Material mat)
+        {
+            var go = new GameObject("Sparkles");
+            go.transform.SetParent(parent, false);
+            var ps = go.AddComponent<ParticleSystem>();
+            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+
+            var main = ps.main;
+            main.playOnAwake = false;
+            main.loop = false;
+            main.duration = 1f;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(0.5f, 1.1f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.12f, 0.4f);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.008f, 0.022f);
+            main.startColor = Lavender;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.gravityModifier = -0.03f; // drift up a little
+            main.maxParticles = 300;
+
+            var emission = ps.emission;
+            emission.enabled = false; // emitted by script
+
+            var shape = ps.shape;
+            shape.shapeType = ParticleSystemShapeType.Sphere;
+            shape.radius = 0.1f;
+
+            var col = ps.colorOverLifetime;
+            col.enabled = true;
+            var fade = new Gradient();
+            fade.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                         new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(0f, 1f) });
+            col.color = fade;
+
+            var size = ps.sizeOverLifetime;
+            size.enabled = true;
+            size.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 1f, 1f, 0f));
+
+            var r = go.GetComponent<ParticleSystemRenderer>();
+            r.sharedMaterial = mat;
+            r.renderMode = ParticleSystemRenderMode.Billboard;
+            r.shadowCastingMode = ShadowCastingMode.Off;
+            r.receiveShadows = false;
+            return ps;
+        }
+
+        static Texture2D SparkleTexture()
+        {
+            string path = MatDir + "/Harley_Sparkle.asset";
+            var existing = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            if (existing != null) return existing;
+            const int n = 64;
+            var tex = new Texture2D(n, n, TextureFormat.RGBA32, false) { name = "Harley_Sparkle", wrapMode = TextureWrapMode.Clamp };
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    float dx = (x + 0.5f) / n * 2f - 1f, dy = (y + 0.5f) / n * 2f - 1f;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy);
+                    float a = Mathf.Clamp01(1f - d);
+                    a = a * a * (3f - 2f * a);
+                    tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+                }
+            tex.Apply();
+            AssetDatabase.CreateAsset(tex, path);
+            return tex;
+        }
 
         static GameObject Prim(string name, Transform parent, Vector3 pos, Vector3 scale, Material mat, PrimitiveType type = PrimitiveType.Sphere)
         {
             var go = GameObject.CreatePrimitive(type);
             go.name = name;
             var col = go.GetComponent<Collider>();
-            if (col) Object.DestroyImmediate(col); // no colliders: room raycasts must not hit the companion
+            if (col) Object.DestroyImmediate(col); // no colliders: room raycasts must not hit Harley
             go.transform.SetParent(parent, false);
             go.transform.localPosition = pos;
             go.transform.localScale = scale;
@@ -225,7 +321,7 @@ namespace AICompanion.EditorTools
             return m;
         }
 
-        static Material SpriteMaterial(string name, Color color)
+        static Material SpriteMaterial(string name, Color color, Texture2D tex)
         {
             string path = MatDir + "/" + name + ".mat";
             var m = AssetDatabase.LoadAssetAtPath<Material>(path);
@@ -233,6 +329,7 @@ namespace AICompanion.EditorTools
             // Sprites/Default: unlit, alpha blended, uses vertex colours, works in URP.
             m = new Material(Shader.Find("Sprites/Default")) { name = name };
             m.SetColor("_Color", color);
+            if (tex != null) m.mainTexture = tex;
             AssetDatabase.CreateAsset(m, path);
             return m;
         }
@@ -247,17 +344,17 @@ namespace AICompanion.EditorTools
             return c;
         }
 
-        static MonoBehaviour FindPassthroughCamera()
+        static MonoBehaviour FindByTypeName(string typeName)
         {
             foreach (var mb in Object.FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-                if (mb != null && mb.GetType().Name == "PassthroughCameraAccess") return mb;
+                if (mb != null && mb.GetType().Name == typeName) return mb;
             return null;
         }
 
         static void EnsureLight()
         {
             if (Object.FindObjectsByType<Light>(FindObjectsInactive.Exclude, FindObjectsSortMode.None).Length > 0) return;
-            var lightGO = new GameObject("Companion Light");
+            var lightGO = new GameObject("Harley Light");
             Undo.RegisterCreatedObjectUndo(lightGO, "Create Light");
             var l = lightGO.AddComponent<Light>();
             l.type = LightType.Directional;

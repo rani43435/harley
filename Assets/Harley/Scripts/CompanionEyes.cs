@@ -2,7 +2,7 @@ using System;
 using System.Reflection;
 using UnityEngine;
 
-namespace AICompanion
+namespace Harley
 {
     /// <summary>
     /// Lets the companion "see what you see": grabs a frame from the Quest

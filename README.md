@@ -1,82 +1,79 @@
-# Nova — AI Companion for Quest (Mixed Reality)
+# Harley — AI Companion for Quest (Mixed Reality)
 
-A small white-and-purple AI creature that lives in your real room on Meta Quest 3 / 3S.
-It floats around you, sees what you see (passthrough camera), talks with you (Claude),
-reacts when you poke, pet or wave at it, sits on your table, and comments on things on its own.
+Harley is a small white-and-purple AI creature that lives in your real room on Meta Quest 3 / 3S.
+It floats around you, sees what you see, knows where your furniture is, talks with you (Claude),
+remembers you between sessions, and reacts when you poke it, pet it, wave at it, pick it up or throw it.
+
+## What Harley can do
+
+- **Talk** — look at Harley for a second (or press **A**) and speak. It answers out loud with
+  Meta Voice SDK, or in a cute babble voice with subtitles when no TTS is set up.
+- **See** — every message carries a small frame from the passthrough camera, so it can comment on what you're looking at.
+- **Know your room** — reads the room scan (MRUK): "Harley, go sit on the couch" works.
+- **Remember you** — keeps short facts about you between sessions (your name, what you like), saved on the headset only.
+  Say "forget everything about me" to wipe it.
+- **Move** — follows you lazily, wanders, sits on tables, hides behind you, flies to things.
+- **Be touched** — poke, pet (stroke the top of its head), wave, **pinch to pick it up**, let go to place it,
+  or **throw it** and watch it bounce off your walls.
+- **Feel** — 8 emotions, blinking, eyes that follow you, spinning halo while it thinks, sleeps when ignored.
 
 ## What's inside
 
 ```
-Assets/AICompanion/
+Assets/Harley/
   Scripts/
     CompanionBrain.cs        the mind: hears → sees → asks Claude → speaks, emotes, moves
     ClaudeClient.cs          Claude Messages API (image + structured JSON reply)
     CompanionEyes.cs         grabs a frame from the Quest passthrough camera
-    CompanionMovement.cs     follow / wander / sit on table / hide / come close / look at thing
-    CompanionVisual.cs       bob, blink, eyes follow you, emotions, mouth, halo, wave/spin/dance
-    CompanionVoice.cs        speech in/out bridge (Meta Voice SDK) + subtitle bubble
-    CompanionInteraction.cs  poke, pet, wave, look-to-talk, A button to talk
-    CompanionConfig.cs       settings asset (API key, model, personality)
+    CompanionRoom.cs         room objects from the MRUK room scan (couch, table, window...)
+    CompanionMemory.cs       facts about you, kept between sessions (JSON on the headset)
+    CompanionMovement.cs     follow / wander / go to / sit / hide / held / thrown
+    CompanionVisual.cs       bob, blink, emotions, mouth, halo, pop-in, sparkles, tumble
+    CompanionVoice.cs        Voice SDK auto-connect, subtitles, babble fallback
+    CompanionSounds.cs       synthesized babble voice + reaction sounds (no audio files)
+    CompanionInteraction.cs  poke, pet, wave, pinch/grip to grab, throw, look-to-talk
+    CompanionConfig.cs       settings asset (API key, model, personality, memory, sound)
     CompanionTypes.cs        emotions, actions, reply parsing
   Editor/
-    CompanionBuilder.cs      menu: AI Companion > Create Companion In Scene
+    CompanionBuilder.cs      menu: Harley > Create Harley In Scene
+preview/
+  harley-preview.html        web preview of the character
 ```
 
-## Setup (about 20 minutes)
+## Setup
 
-1. **Project** — Unity 6 (6000.0.38+), Android, URP. Easiest start: Meta's *Mixed Reality* template,
-   or a URP project with **Meta XR All-in-One SDK** + **Meta MR Utility Kit (MRUK) v81+**.
-   Run *Meta > Tools > Project Setup Tool* and fix everything.
+1. **Project** — Unity 6 (6000.0.38+), Android, URP. Easiest: Meta's *Mixed Reality* template, or a URP project
+   with **Meta XR All-in-One SDK** + **Meta MR Utility Kit (MRUK)**. Run *Meta > Tools > Project Setup Tool* and fix everything.
 2. **Building blocks** (*Meta > Tools > Building Blocks*): Camera Rig, Passthrough, Hand Tracking,
-   and Room Mesh / Effect Mesh **with colliders** (so Nova avoids walls and finds tables).
-3. **Camera access** — select the Camera Rig, in OVR Manager enable *Passthrough Camera Access*,
-   then add a **PassthroughCameraAccess** component to any GameObject.
-   (Quest 3 / 3S, Horizon OS v74+. Doesn't work in the XR Simulator.)
-4. Copy `Assets/AICompanion` into your project. If asked, import **TMP Essentials**.
-5. Menu **AI Companion > Create Companion In Scene**. It builds Nova, the materials and the config,
-   and connects the camera if it finds it.
-6. Menu **AI Companion > Select Config (API key)** → paste your Claude API key
-   (console.anthropic.com). The config asset is git-ignored on purpose.
-7. *Player Settings > Android*: Internet Access = **Require**. Build & Run on the headset.
+   **Passthrough Camera Access**, **MR Utility Kit** and **Effect Mesh** with colliders
+   (so Harley sees, knows your furniture and avoids walls).
+3. **Permissions** — select the Camera Rig. In **OVR Manager** check that *Enable Passthrough Camera Access* is on, and under
+   *Permission Requests On Startup* tick **Passthrough Camera Access** and **Scene**.
+   (Camera access needs Quest 3 / 3S with Horizon OS v74+, and doesn't run in the XR Simulator.)
+4. Copy `Assets/Harley` into your project. If asked, import **TMP Essentials**.
+5. Menu **Harley > Create Harley In Scene**. It builds Harley and its materials, and connects whatever it finds.
+6. Menu **Harley > Select Config (API key)** → paste your Claude API key (console.anthropic.com).
+   The config asset is git-ignored on purpose.
+7. *Player Settings > Android*: Internet Access = **Require**. Build & Run.
 
-### Voice (Meta Voice SDK, free)
+### Voice (optional, free)
 
-Add the **Dictation** and **Text to Speech** building blocks (needs a free Wit.ai app token), then on the
-`AI Companion` object, in **CompanionVoice**:
+Install the **Meta Voice SDK** package, then add the **Dictation** and **Speak Text** building blocks
+(they ask for a free Wit.ai app token). Or by hand: *Assets > Create > Voice SDK > Add App Dictation Experience to Scene*
+and *Assets > Create > Voice SDK > TTS > Add Default TTS Setup*.
 
-| CompanionVoice event | → wire to |
-|---|---|
-| On Start Listening | `AppDictationExperience.Activate()` |
-| On Stop Listening | `AppDictationExperience.Deactivate()` |
-| On Speak (string) | `TTSSpeaker.Speak(string)` (dynamic) |
-
-And the other way:
-
-| Voice SDK event | → `CompanionVoice` method |
-|---|---|
-| Dictation · On Full Transcription | `ReceiveTranscript` |
-| Dictation · On Partial Transcription | `ReceivePartialTranscript` (optional) |
-| TTSSpeaker · Playback Start / Complete | `OnTtsStarted` / `OnTtsFinished` (optional) |
-
-Drag the TTSSpeaker's AudioSource into **Tts Audio** so the mouth follows the voice.
-Without voice wired, Nova still works with the subtitle bubble.
-
-## How you interact
-
-- **Look at Nova for ~1 second** (or press **A**) → it listens. Talk.
-- **Poke** it with your finger, **pet** the top of its head, **wave** at it.
-- Ignore it for 3 minutes and it falls asleep; poke to wake it.
-- Every 1–2 minutes it glances at what you're looking at and may comment.
+Harley finds both when you press Play and connects them itself (no event wiring). Without them,
+it talks in its babble voice with subtitles. Prefer manual wiring? The UnityEvents on **CompanionVoice** still work.
 
 ## Testing in the Editor
 
-On `CompanionBrain`, type in **Test Message** and press **Enter** in Play mode (or right-click the
-component → *Send Test Message*). Put any room photo in `CompanionEyes > Editor Test Image` to test vision.
+On `CompanionBrain`, type in **Test Message** and press **Enter** in Play mode (or right-click the component →
+*Send Test Message*). Put any room photo in `CompanionEyes > Editor Test Image` to test vision.
+Memory lives in *Harley > Open Memory Folder* (`harley_memory.json`).
 
 ## Notes
 
-- Model: `claude-haiku-5-5` by default (fastest). Switch to `claude-sonnet-5-5` in the config for smarter replies.
-- The API key lives inside the app. Fine for your own headset; for a public release, put a small
-  server in between so the key isn't in the APK.
-- Arabic text in the bubble needs an RTL plugin for TextMeshPro (e.g. RTLTMPro); English works out of the box.
-- Cost: each message sends one 512 px image (~a few hundred tokens). Turn off *Proactive Comments* to save.
+- Model: `claude-haiku-5-5` by default (fastest). Use `claude-sonnet-5-5` in the config for smarter replies.
+- The API key lives inside the app. Fine for your own headset; for a public release, put a small server in between.
+- Arabic subtitles need an RTL plugin for TextMeshPro (e.g. RTLTMPro). The babble voice works in any language.
+- Cost: each spoken message sends one 512 px image. Turn off *Proactive Comments* to save.

@@ -1,14 +1,14 @@
 using UnityEngine;
 
-namespace AICompanion
+namespace Harley
 {
     /// <summary>
     /// All the life in the character: floating bob, leaning into movement,
     /// blinking, eyes that follow you, emotions, talking mouth, glowing halo
     /// (listening / thinking), squash when poked, waving, spinning and dancing.
     ///
-    /// The parts are built by the editor menu "AI Companion > Create Companion
-    /// In Scene", but you can swap in your own model: keep the same slots.
+    /// The parts are built by the editor menu "Harley > Create Harley In Scene",
+    /// but you can swap in your own model: keep the same slots.
     /// </summary>
     public class CompanionVisual : MonoBehaviour
     {
@@ -19,6 +19,7 @@ namespace AICompanion
         public Transform handL, handR;
         public LineRenderer halo;
         public TrailRenderer trail;
+        public ParticleSystem sparkles;
         public Renderer[] glowRenderers; // eyes + mouth: tinted by emotion
 
         [Header("Links")]
@@ -51,6 +52,8 @@ namespace AICompanion
         float _haloSpin;
         Vector3 _eyeShiftL, _eyeShiftR;
         float _sitBlend;
+        float _spawnT = -1f;
+        float _tumble;
         Color _glowNow;
         MaterialPropertyBlock _mpb;
         static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
@@ -100,6 +103,25 @@ namespace AICompanion
 
         public void Wave() { _waveT = 0f; }
 
+        /// <summary>Pop into the room: grow from nothing with a sparkle burst.</summary>
+        public void PopIn()
+        {
+            _spawnT = 0f;
+            transform.localScale = Vector3.zero;
+            Burst(36, lavender);
+        }
+
+        /// <summary>A soft squish, e.g. when landing after a throw.</summary>
+        public void Squish(float amount = 6f) { _squashVel += amount; }
+
+        /// <summary>Little glowing sparkles around the body.</summary>
+        public void Burst(int count, Color color)
+        {
+            if (sparkles == null) return;
+            var p = new ParticleSystem.EmitParams { startColor = color, applyShapeToPosition = true };
+            sparkles.Emit(p, count);
+        }
+
         // ---------- per frame ----------
 
         void LateUpdate()
@@ -141,6 +163,22 @@ namespace AICompanion
                 y += Mathf.Abs(Mathf.Sin(_danceT * Mathf.PI * 2f * 2f)) * 0.035f;
                 roll += Mathf.Sin(_danceT * Mathf.PI * 2f * 1.2f) * 10f;
                 if (_danceT > 3.2f) _danceT = -1f;
+            }
+
+            // Carried in your hand: dangle. Thrown: tumble.
+            if (movement != null && movement.IsHeld) roll += Mathf.Sin(t * 7f) * 9f;
+            if (movement != null && movement.IsFlying) _tumble += dt * 720f;
+            else _tumble = Mathf.MoveTowards(_tumble % 360f, _tumble % 360f > 180f ? 360f : 0f, dt * 900f);
+            roll += _tumble;
+
+            // Pop-in: elastic grow from nothing.
+            if (_spawnT >= 0f)
+            {
+                _spawnT += dt / 0.7f;
+                float k01 = Mathf.Clamp01(_spawnT);
+                float scale = k01 >= 1f ? 1f : 1f - Mathf.Cos(k01 * Mathf.PI * 3.5f) * Mathf.Exp(-6f * k01);
+                transform.localScale = Vector3.one * Mathf.Max(0f, scale);
+                if (_spawnT >= 1f) { _spawnT = -1f; transform.localScale = Vector3.one; }
             }
 
             transform.localPosition = new Vector3(0f, y - _sitBlend * 0.01f, 0f);
@@ -191,7 +229,7 @@ namespace AICompanion
             UpdateHalo(t, dt, talk);
 
             // --- trail only while flying ---
-            if (trail) trail.emitting = movement != null && movement.Velocity.magnitude > 0.35f;
+            if (trail) trail.emitting = movement != null && (movement.Velocity.magnitude > 0.35f || movement.IsFlying);
         }
 
         void UpdateEyes(Emotion emo, float t, float dt)

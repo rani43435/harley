@@ -1,41 +1,44 @@
 using System;
+using System.Reflection;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
 
-namespace AICompanion
+namespace Harley
 {
     /// <summary>
-    /// Voice in / voice out, without hard-wiring any speech package.
+    /// Voice in / voice out.
     ///
-    /// Speech-to-text: wire Meta Voice SDK "Dictation" in the Inspector:
-    ///   On Start Listening  -> AppDictationExperience.Activate()
-    ///   On Stop Listening   -> AppDictationExperience.Deactivate()
-    ///   Dictation "On Full Transcription"    -> CompanionVoice.ReceiveTranscript(string)
-    ///   Dictation "On Partial Transcription" -> CompanionVoice.ReceivePartialTranscript(string)  (optional)
+    /// Meta Voice SDK is connected automatically: put an App Dictation Experience
+    /// and a TTS Speaker in the scene and Harley finds them at start
+    /// (Assets > Create > Voice SDK > Add App Dictation Experience to Scene,
+    ///  Assets > Create > Voice SDK > TTS > Add Default TTS Setup).
     ///
-    /// Text-to-speech: wire Meta Voice SDK "TTS":
-    ///   On Speak -> TTSSpeaker.Speak(string)
-    ///   TTSSpeaker "On Playback Start"    -> CompanionVoice.OnTtsStarted()   (optional, exact timing)
-    ///   TTSSpeaker "On Playback Complete" -> CompanionVoice.OnTtsFinished()  (optional)
-    ///   Drag the TTSSpeaker's AudioSource into Tts Audio for a real lip-sync.
+    /// Prefer manual wiring? Use the UnityEvents below; anything wired there
+    /// turns the automatic connection off for that half.
     ///
-    /// Nothing wired? It still works with subtitles only (text bubble above the head).
+    /// No text-to-speech? Harley talks in a cute babble voice (CompanionSounds)
+    /// with subtitles in a bubble above its head.
     /// </summary>
     public class CompanionVoice : MonoBehaviour
     {
         [Serializable] public class StringEvent : UnityEvent<string> { }
 
-        [Header("Speech to text")]
+        public CompanionConfig config;
+        public CompanionSounds sounds;
+        [Tooltip("Find Meta Voice SDK dictation and TTS in the scene and connect them.")]
+        public bool autoConnectVoiceSDK = true;
+
+        [Header("Speech to text (manual wiring, optional)")]
         public UnityEvent onStartListening = new UnityEvent();
         public UnityEvent onStopListening = new UnityEvent();
         [Tooltip("Stop listening if nothing was heard after this many seconds.")]
         public float listenTimeout = 9f;
 
-        [Header("Text to speech")]
+        [Header("Text to speech (manual wiring, optional)")]
         public StringEvent onSpeak = new StringEvent();
         public UnityEvent onStopSpeaking = new UnityEvent();
-        [Tooltip("Optional: the AudioSource the TTS plays through, for mouth movement that follows the voice.")]
+        [Tooltip("The AudioSource the TTS plays through, for a mouth that follows the voice. Found automatically with Voice SDK.")]
         public AudioSource ttsAudio;
 
         [Header("Subtitles")]
@@ -53,12 +56,15 @@ namespace AICompanion
         public bool IsSpeaking { get; private set; }
         /// <summary>0..1 how open the mouth should be right now.</summary>
         public float TalkAmount { get; private set; }
+        /// <summary>True when a real text-to-speech voice is connected.</summary>
+        public bool HasTts => _autoTts || (onSpeak != null && onSpeak.GetPersistentEventCount() > 0);
+        public bool HasDictation => _autoDictation || (onStartListening != null && onStartListening.GetPersistentEventCount() > 0);
 
-        float _listenStarted;
+        float _listenStarted, _micStoppedAt;
         float _speakEndsAt, _speakStarted, _speakDuration;
         float _subtitleHideAt;
         float _subtitleAlpha;
-        bool _ttsReportsTiming;
+        bool _ttsReportsTiming, _babbling;
         bool _dots;
         int _lastDots;
         readonly float[] _samples = new float[256];
@@ -66,6 +72,11 @@ namespace AICompanion
         static readonly int ColorId = Shader.PropertyToID("_Color");
         static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
         Color _bgColor = new Color(0.12f, 0.06f, 0.2f, 0.8f);
+
+        // Voice SDK, found by reflection (no compile-time dependency)
+        MonoBehaviour _dictation, _tts;
+        MethodInfo _dictActivate, _dictDeactivate, _ttsSpeak, _ttsStop;
+        bool _autoDictation, _autoTts;
 
         void Awake()
         {
@@ -78,6 +89,79 @@ namespace AICompanion
         void Start()
         {
             if (head == null && Camera.main != null) head = Camera.main.transform;
+            if (autoConnectVoiceSDK) AutoConnect();
+        }
+
+        // ---------- Voice SDK auto-connect ----------
+
+        void AutoConnect()
+        {
+            foreach (var mb in FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+            {
+                if (mb == null) continue;
+                string n = mb.GetType().Name;
+                if (_dictation == null && n == "AppDictationExperience") _dictation = mb;
+                else if (_tts == null && n == "TTSSpeaker") _tts = mb;
+            }
+
+            const BindingFlags inst = BindingFlags.Public | BindingFlags.Instance;
+            try
+            {
+                if (_dictation != null && onStartListening.GetPersistentEventCount() == 0)
+                {
+                    Type t = _dictation.GetType();
+                    _dictActivate = t.GetMethod("Activate", inst, null, Type.EmptyTypes, null);
+                    _dictDeactivate = t.GetMethod("Deactivate", inst, null, Type.EmptyTypes, null);
+                    object events = Prop(_dictation, "DictationEvents");
+                    if (events != null)
+                    {
+                        if (Prop(events, "OnFullTranscription") is UnityEvent<string> full) full.AddListener(ReceiveTranscript);
+                        if (Prop(events, "OnPartialTranscription") is UnityEvent<string> part) part.AddListener(ReceivePartialTranscript);
+                        if (Prop(events, "OnStoppedListening") is UnityEvent stopped) stopped.AddListener(() => _micStoppedAt = Time.time);
+                    }
+                    _autoDictation = _dictActivate != null;
+                }
+
+                if (_tts != null && onSpeak.GetPersistentEventCount() == 0)
+                {
+                    Type t = _tts.GetType();
+                    _ttsSpeak = t.GetMethod("Speak", inst, null, new[] { typeof(string) }, null);
+                    _ttsStop = t.GetMethod("Stop", inst, null, Type.EmptyTypes, null);
+                    if (ttsAudio == null && Prop(_tts, "AudioSource") is AudioSource src) ttsAudio = src;
+                    object events = Prop(_tts, "Events");
+                    if (events != null)
+                    {
+                        if (Prop(events, "OnPlaybackQueueBegin") is UnityEvent begin) begin.AddListener(OnTtsStarted);
+                        if (Prop(events, "OnPlaybackQueueComplete") is UnityEvent done) done.AddListener(OnTtsFinished);
+                    }
+                    _autoTts = _ttsSpeak != null;
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[Harley] Could not connect Voice SDK automatically, wire it by hand: " + e.Message);
+            }
+
+            Debug.Log($"[Harley] Voice: dictation {(HasDictation ? "connected" : "not found")}, " +
+                      $"TTS {(HasTts ? "connected" : "not found, using babble voice")}.");
+        }
+
+        static object Prop(object target, string name)
+        {
+            if (target == null) return null;
+            foreach (var p in target.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (p.Name != name || p.GetIndexParameters().Length > 0) continue;
+                try { return p.GetValue(target); } catch { return null; }
+            }
+            return null;
+        }
+
+        void InvokeSafe(MethodInfo m, object target, params object[] args)
+        {
+            if (m == null || target == null) return;
+            try { m.Invoke(target, args); }
+            catch (Exception e) { Debug.LogWarning("[Harley] Voice SDK call failed: " + (e.InnerException ?? e).Message); }
         }
 
         // ---------- listening ----------
@@ -88,8 +172,11 @@ namespace AICompanion
             if (IsSpeaking) StopSpeaking();
             IsListening = true;
             _listenStarted = Time.time;
+            _micStoppedAt = 0f;
             ShowText("...", partialColor, false);
             _dots = true;
+            sounds?.Play(Sfx.Ding, 1f, 0.6f);
+            if (_autoDictation) InvokeSafe(_dictActivate, _dictation);
             onStartListening?.Invoke();
             ListeningChanged?.Invoke(true);
         }
@@ -98,12 +185,13 @@ namespace AICompanion
         {
             if (!IsListening) return;
             IsListening = false;
+            if (_autoDictation) InvokeSafe(_dictDeactivate, _dictation);
             onStopListening?.Invoke();
             ListeningChanged?.Invoke(false);
             _subtitleHideAt = Time.time + 0.6f;
         }
 
-        /// <summary>Wire the dictation's "full transcription" event here.</summary>
+        /// <summary>Dictation's "full transcription" lands here.</summary>
         public void ReceiveTranscript(string text)
         {
             bool was = IsListening;
@@ -115,7 +203,7 @@ namespace AICompanion
             Transcribed?.Invoke(text.Trim());
         }
 
-        /// <summary>Optional: live words while you are still talking.</summary>
+        /// <summary>Live words while you are still talking.</summary>
         public void ReceivePartialTranscript(string text)
         {
             if (!IsListening || string.IsNullOrWhiteSpace(text)) return;
@@ -128,30 +216,45 @@ namespace AICompanion
 
         // ---------- speaking ----------
 
-        public void Say(string text)
+        public void Say(string text, Emotion emotion = Emotion.Neutral)
         {
             if (string.IsNullOrWhiteSpace(text)) return;
             if (IsListening) StopListening();
             text = text.Trim();
 
             _speakDuration = EstimateDuration(text);
+            _ttsReportsTiming = false;
+            _babbling = false;
+
+            bool preferBabble = config != null && config.babble && config.babbleEvenWithTTS;
+            if (HasTts && !preferBabble)
+            {
+                if (_autoTts) InvokeSafe(_ttsSpeak, _tts, text);
+                onSpeak?.Invoke(text);
+            }
+            else if (sounds != null && (config == null || config.babble))
+            {
+                _speakDuration = Mathf.Max(0.8f, sounds.Babble(text, emotion) + 0.15f);
+                _babbling = true;
+            }
+
             _speakStarted = Time.time;
             _speakEndsAt = Time.time + _speakDuration;
-            _ttsReportsTiming = false;
             IsSpeaking = true;
             ShowText(text, subtitleColor, true);
-            onSpeak?.Invoke(text);
         }
 
         public void StopSpeaking()
         {
             if (!IsSpeaking) return;
             IsSpeaking = false;
+            if (_babbling) sounds?.StopBabble();
+            if (_autoTts) InvokeSafe(_ttsStop, _tts);
             onStopSpeaking?.Invoke();
             _subtitleHideAt = Time.time + 0.5f;
         }
 
-        /// <summary>Optional: wire TTS "playback start" for exact timing.</summary>
+        /// <summary>TTS started playing (auto-wired with Voice SDK).</summary>
         public void OnTtsStarted()
         {
             _ttsReportsTiming = true;
@@ -160,7 +263,7 @@ namespace AICompanion
             _speakEndsAt = Time.time + 30f; // safety cap until we hear "finished"
         }
 
-        /// <summary>Optional: wire TTS "playback complete".</summary>
+        /// <summary>TTS finished playing (auto-wired with Voice SDK).</summary>
         public void OnTtsFinished()
         {
             IsSpeaking = false;
@@ -183,10 +286,12 @@ namespace AICompanion
             float t = Time.time;
 
             if (IsListening && t - _listenStarted > listenTimeout) StopListening();
+            if (IsListening && _micStoppedAt > 0f && t - _micStoppedAt > 2.5f) StopListening(); // mic closed, nothing came
 
             if (IsSpeaking && t >= _speakEndsAt)
             {
                 IsSpeaking = false;
+                _babbling = false;
                 _subtitleHideAt = t + subtitleHoldSeconds;
             }
 
@@ -194,7 +299,11 @@ namespace AICompanion
             float target = 0f;
             if (IsSpeaking)
             {
-                if (ttsAudio != null && ttsAudio.isPlaying)
+                if (_babbling && sounds != null)
+                {
+                    target = sounds.BabbleLevel;
+                }
+                else if (ttsAudio != null && ttsAudio.isPlaying)
                 {
                     ttsAudio.GetOutputData(_samples, 0);
                     float sum = 0f;
@@ -203,7 +312,6 @@ namespace AICompanion
                 }
                 else
                 {
-                    // Syllable-ish rhythm when there is no audio to follow.
                     float syl = 0.5f + 0.5f * Mathf.Sin(t * 17f);
                     float wobble = Mathf.PerlinNoise(t * 3f, 0.37f);
                     target = syl * (0.45f + 0.55f * wobble);
@@ -212,15 +320,10 @@ namespace AICompanion
             TalkAmount = Mathf.Lerp(TalkAmount, target, 1f - Mathf.Exp(-25f * Time.deltaTime));
 
             // Typewriter subtitles in sync with speech
-            if (subtitle != null && IsSpeaking && !_ttsReportsTiming)
+            if (subtitle != null && IsSpeaking)
             {
-                float p = Mathf.Clamp01((t - _speakStarted) / Mathf.Max(0.1f, _speakDuration * 0.9f));
-                subtitle.maxVisibleCharacters = Mathf.CeilToInt(p * subtitle.textInfo.characterCount);
-            }
-            else if (subtitle != null && IsSpeaking && _ttsReportsTiming)
-            {
-                // Real TTS playing: reveal at a normal speaking pace.
-                float p = Mathf.Clamp01((t - _speakStarted) / Mathf.Max(0.1f, _speakDuration));
+                float dur = _ttsReportsTiming ? EstimateDuration(subtitle.text) : _speakDuration * 0.9f;
+                float p = Mathf.Clamp01((t - _speakStarted) / Mathf.Max(0.1f, dur));
                 subtitle.maxVisibleCharacters = Mathf.CeilToInt(p * subtitle.textInfo.characterCount);
             }
 
@@ -229,7 +332,7 @@ namespace AICompanion
             _subtitleAlpha = Mathf.MoveTowards(_subtitleAlpha, show ? 1f : 0f, Time.deltaTime * 3f);
             SetSubtitleAlpha(_subtitleAlpha);
 
-            // Listening dots animation until the first words arrive
+            // Listening dots until the first words arrive
             if (_dots && !IsListening) _dots = false;
             if (_dots && subtitle != null)
             {
@@ -245,12 +348,10 @@ namespace AICompanion
         void LateUpdate()
         {
             if (subtitle == null || head == null) return;
-            // Face the player.
             Transform st = subtitle.transform;
             Vector3 away = st.position - head.position;
             if (away.sqrMagnitude > 0.0001f) st.rotation = Quaternion.LookRotation(away.normalized, Vector3.up);
 
-            // Size the background to the text.
             if (subtitleBackground != null && _subtitleAlpha > 0.01f)
             {
                 Bounds b = subtitle.textBounds;

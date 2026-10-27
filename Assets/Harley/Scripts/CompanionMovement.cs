@@ -1,22 +1,24 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace AICompanion
+namespace Harley
 {
     /// <summary>
-    /// Moves the companion around the player in mixed reality:
-    /// lazy follow (it does not stick to your face), wander, fly to what you
-    /// look at, sit on a table, hide behind you, come close.
+    /// Moves Harley around the player in mixed reality:
+    /// lazy follow (it does not stick to your face), wander, fly to what you look
+    /// at, go to a named room object (couch, window, screen...), sit on furniture,
+    /// hide behind you, come close, and get grabbed / thrown with your hand.
     ///
-    /// It uses physics colliders for the room. With Meta MRUK, add an
-    /// "Effect Mesh" (or the Room Mesh building block) with colliders on, and
-    /// the companion will avoid walls and find tables/couches to sit on.
-    /// Without colliders it still works, it just flies through walls.
+    /// Room data comes from CompanionRoom (Meta MRUK scene) and from physics
+    /// colliders (Effect Mesh / Room Mesh with colliders on). Without either it
+    /// still works, it just flies through walls.
     /// </summary>
     public class CompanionMovement : MonoBehaviour
     {
         [Tooltip("Player head. Empty = Main Camera.")]
         public Transform head;
+        public CompanionRoom room;
 
         [Header("Follow")]
         public float followDistance = 0.95f;
@@ -31,13 +33,18 @@ namespace AICompanion
         [Header("Motion")]
         public float smoothTime = 0.5f;
         public float maxSpeed = 1.5f;
-        [Tooltip("Never closer to your face than this.")]
+        [Tooltip("Never closer to your face than this (unless you hold it).")]
         public float personalSpace = 0.45f;
         public float turnSpeed = 6f;
 
+        [Header("Throwing")]
+        public float throwGravity = 3.5f;
+        [Range(0f, 1f)] public float bounciness = 0.55f;
+        public float maxThrowSpeed = 6f;
+
         [Header("Room")]
         public LayerMask roomLayers = ~0;
-        [Tooltip("Floor height. Detected automatically if Detect Floor is on and the room has colliders.")]
+        [Tooltip("Floor height. Taken from the room scan, or detected with colliders.")]
         public float floorY = 0f;
         public bool detectFloor = true;
         [Tooltip("Radius of the character, used to sit on surfaces and keep off walls.")]
@@ -47,9 +54,17 @@ namespace AICompanion
         public Vector3 Velocity => _vel;
         public Vector3 LookPoint { get; private set; }
         public bool IsSitting { get; private set; }
-        public bool LookingAtPlayer { get; private set; } = true;
+        public bool IsHeld { get; private set; }
+        public bool IsFlying { get; private set; }
+        /// <summary>Name of the room object it went to with go_to, if any.</summary>
+        public string CurrentPlace { get; private set; } = "";
 
-        Vector3 _target, _vel;
+        /// <summary>Hit a wall or the floor while thrown. Value = impact speed.</summary>
+        public event Action<float> Bounced;
+        /// <summary>Came to rest after being thrown.</summary>
+        public event Action Landed;
+
+        Vector3 _target, _vel, _lastPos;
         float _actionUntil = float.PositiveInfinity;
         bool _anchored;
         Vector3 _anchorHeadPos;
@@ -57,12 +72,14 @@ namespace AICompanion
         int _side = 1;
         float _nextFloorCheck;
         bool _floorFound;
+        bool _skipLineOfSight;
 
-        // wander / multi-step actions
         readonly List<Vector3> _waypoints = new List<Vector3>();
         float _nextWaypointAt;
-        int _hideStep;
-        Vector3 _sitSpot;
+        Vector3 _sitSpot, _thingPoint, _goTarget;
+        bool _goSeat;
+        Vector3 _holdTarget, _throwVel;
+        float _flyUntil, _lastBounce;
 
         void Start()
         {
@@ -74,17 +91,20 @@ namespace AICompanion
                 ComputeFollowTarget(true);
                 transform.position = _target;
             }
-            _side = Random.value < 0.5f ? -1 : 1;
+            _lastPos = transform.position;
+            _side = UnityEngine.Random.value < 0.5f ? -1 : 1;
         }
 
-        public void Perform(CompanionAction action)
+        // ---------- commands ----------
+
+        public void Perform(CompanionAction action, CompanionRoom.Thing thing = null)
         {
-            if (head == null) return;
+            if (head == null || IsHeld || IsFlying) return;
             CurrentAction = action;
             IsSitting = false;
-            LookingAtPlayer = true;
+            _skipLineOfSight = false;
             _waypoints.Clear();
-            _hideStep = 0;
+            CurrentPlace = "";
 
             switch (action)
             {
@@ -93,13 +113,57 @@ namespace AICompanion
                 case CompanionAction.ComeClose:   _actionUntil = Time.time + 6f; break;
                 case CompanionAction.Wander:      BuildWander(); _actionUntil = Time.time + 20f; break;
                 case CompanionAction.LookAtThing: AimAtThing(); _actionUntil = Time.time + 7f; break;
-                case CompanionAction.Sit:         _sitSpot = FindSitSpot(); _actionUntil = float.PositiveInfinity; break;
+                case CompanionAction.Sit:         _sitSpot = FindSitSpot(); _skipLineOfSight = true; _actionUntil = float.PositiveInfinity; break;
                 case CompanionAction.Hide:        _actionUntil = Time.time + 5.5f; break;
                 case CompanionAction.Spin:        _actionUntil = Time.time + 1.2f; _target = transform.position; break;
                 case CompanionAction.Dance:       _actionUntil = Time.time + 3.5f; _target = transform.position; break;
                 case CompanionAction.Wave:        _actionUntil = Time.time + 2f; _target = transform.position; break;
+                case CompanionAction.GoTo:
+                    if (thing == null) { Perform(CompanionAction.LookAtThing); return; }
+                    PlanGoTo(thing);
+                    _actionUntil = float.PositiveInfinity;
+                    break;
             }
         }
+
+        /// <summary>Stay put right here for a while (after being placed by hand).</summary>
+        public void StayHere(float seconds)
+        {
+            CurrentAction = CompanionAction.Stay;
+            _target = transform.position;
+            _actionUntil = Time.time + seconds;
+            IsSitting = false;
+        }
+
+        // ---------- grab & throw ----------
+
+        public void BeginHold()
+        {
+            IsHeld = true;
+            IsFlying = false;
+            IsSitting = false;
+            _holdTarget = transform.position;
+        }
+
+        public void HoldAt(Vector3 p) => _holdTarget = p;
+
+        public void Release(Vector3 handVelocity)
+        {
+            if (!IsHeld) return;
+            IsHeld = false;
+            if (handVelocity.magnitude > 1.1f)
+            {
+                IsFlying = true;
+                _throwVel = Vector3.ClampMagnitude(handVelocity * 1.1f, maxThrowSpeed);
+                _flyUntil = Time.time + 2.5f;
+            }
+            else
+            {
+                StayHere(25f); // you put it somewhere: it stays there a while
+            }
+        }
+
+        // ---------- per frame ----------
 
         void Update()
         {
@@ -107,8 +171,14 @@ namespace AICompanion
             {
                 if (Camera.main != null) head = Camera.main.transform; else return;
             }
+            float dt = Mathf.Max(Time.deltaTime, 0.0001f);
 
-            if (detectFloor && Time.time >= _nextFloorCheck) DetectFloor();
+            if (room != null && room.FloorY.HasValue) { floorY = room.FloorY.Value; _floorFound = true; }
+            else if (detectFloor && Time.time >= _nextFloorCheck) DetectFloor();
+
+            if (IsHeld) { UpdateHeld(dt); FaceLookPoint(); return; }
+            if (IsFlying) { UpdateFlying(dt); return; }
+
             if (Time.time >= _actionUntil) Perform(CompanionAction.Follow);
 
             float smooth = smoothTime;
@@ -131,28 +201,36 @@ namespace AICompanion
                     smooth = smoothTime * 1.6f;
                     if (_waypoints.Count == 0) { Perform(CompanionAction.Follow); break; }
                     _target = _waypoints[0];
-                    LookingAtPlayer = false;
                     LookPoint = _target + _vel.normalized * 0.5f;
                     if (Vector3.Distance(transform.position, _target) < 0.12f)
                     {
-                        LookingAtPlayer = true;
                         LookPoint = head.position;
-                        if (_nextWaypointAt <= 0f) _nextWaypointAt = Time.time + Random.Range(1.5f, 3.5f);
+                        if (_nextWaypointAt <= 0f) _nextWaypointAt = Time.time + UnityEngine.Random.Range(1.5f, 3.5f);
                         if (Time.time >= _nextWaypointAt) { _waypoints.RemoveAt(0); _nextWaypointAt = 0f; }
                     }
                     break;
 
                 case CompanionAction.LookAtThing:
-                    LookingAtPlayer = false;
                     LookPoint = _thingPoint;
                     break;
 
                 case CompanionAction.Sit:
                     _target = _sitSpot + Vector3.up * bodyRadius * 0.92f;
                     IsSitting = Vector3.Distance(transform.position, _target) < 0.05f;
-                    // Player walked away: get up and follow.
                     if (Vector3.Distance(Flat3(head.position), Flat3(_sitSpot)) > 2.8f) Perform(CompanionAction.Follow);
                     break;
+
+                case CompanionAction.GoTo:
+                {
+                    smooth = smoothTime * 1.3f;
+                    _target = _goTarget;
+                    bool arrived = Vector3.Distance(transform.position, _target) < 0.06f;
+                    IsSitting = _goSeat && arrived;
+                    // On the way: look where it's going. There: seats look at you, other things get looked at.
+                    LookPoint = !arrived ? _thingPoint : (_goSeat ? head.position : _thingPoint);
+                    if (Vector3.Distance(Flat3(head.position), Flat3(_goTarget)) > 3.5f) Perform(CompanionAction.Follow);
+                    break;
+                }
 
                 case CompanionAction.Hide:
                 {
@@ -168,16 +246,80 @@ namespace AICompanion
                     break;
             }
 
-            Vector3 goal = SafeTarget(_target);
+            Vector3 goal = SafeTarget(_target, !_skipLineOfSight);
             transform.position = Vector3.SmoothDamp(transform.position, goal, ref _vel, smooth, maxSpeed);
+            FaceLookPoint();
+            _lastPos = transform.position;
+        }
 
-            // Face whatever we are looking at (yaw only, the eyes do the rest).
+        void FaceLookPoint()
+        {
             Vector3 lookDir = Flat3(LookPoint - transform.position);
             if (lookDir.sqrMagnitude > 0.0001f)
             {
                 Quaternion want = Quaternion.LookRotation(lookDir.normalized, Vector3.up);
                 transform.rotation = Quaternion.Slerp(transform.rotation, want, 1f - Mathf.Exp(-turnSpeed * Time.deltaTime));
             }
+        }
+
+        void UpdateHeld(float dt)
+        {
+            Vector3 p = Vector3.Lerp(transform.position, _holdTarget, 1f - Mathf.Exp(-25f * dt));
+            _vel = (p - _lastPos) / dt;
+            transform.position = p;
+            _lastPos = p;
+            LookPoint = head.position;
+        }
+
+        void UpdateFlying(float dt)
+        {
+            _throwVel.y -= throwGravity * dt;
+            _throwVel *= Mathf.Exp(-0.8f * dt);
+            Vector3 pos = transform.position;
+            Vector3 step = _throwVel * dt;
+            float dist = step.magnitude;
+
+            if (dist > 0.0001f && Physics.SphereCast(pos, bodyRadius * 0.9f, step / dist, out RaycastHit hit, dist, roomLayers, QueryTriggerInteraction.Ignore))
+            {
+                pos += step / dist * Mathf.Max(0f, hit.distance - 0.005f);
+                float impact = Vector3.Dot(_throwVel, -hit.normal);
+                _throwVel = Vector3.Reflect(_throwVel, hit.normal) * bounciness;
+                FireBounce(impact);
+            }
+            else pos += step;
+
+            float minY = floorY + bodyRadius * 0.92f;
+            if (pos.y < minY)
+            {
+                pos.y = minY;
+                if (_throwVel.y < 0f)
+                {
+                    FireBounce(-_throwVel.y);
+                    _throwVel.y = -_throwVel.y * bounciness * 0.8f;
+                    _throwVel.x *= 0.75f;
+                    _throwVel.z *= 0.75f;
+                }
+            }
+
+            _vel = _throwVel;
+            transform.position = pos;
+            _lastPos = pos;
+
+            bool resting = pos.y <= minY + 0.01f && _throwVel.magnitude < 0.35f;
+            if (resting || Time.time > _flyUntil)
+            {
+                IsFlying = false;
+                _vel = Vector3.zero;
+                StayHere(1.8f); // shake it off, then come back
+                Landed?.Invoke();
+            }
+        }
+
+        void FireBounce(float impact)
+        {
+            if (impact < 0.4f || Time.time - _lastBounce < 0.12f) return;
+            _lastBounce = Time.time;
+            Bounced?.Invoke(impact);
         }
 
         // ---------- follow ----------
@@ -224,18 +366,15 @@ namespace AICompanion
             Vector3 f = Flat(head.forward);
             for (int i = 0; i < 4; i++)
             {
-                float ang = Random.Range(-75f, 75f);
-                float dist = Random.Range(0.8f, 2.2f);
+                float ang = UnityEngine.Random.Range(-75f, 75f);
+                float dist = UnityEngine.Random.Range(0.8f, 2.2f);
                 Vector3 dir = Quaternion.Euler(0f, ang, 0f) * f;
-                float y = Random.Range(floorY + 0.5f, head.position.y + 0.1f);
-                Vector3 p = new Vector3(head.position.x, y, head.position.z) + dir * dist;
-                _waypoints.Add(p);
+                float y = UnityEngine.Random.Range(floorY + 0.5f, head.position.y + 0.1f);
+                _waypoints.Add(new Vector3(head.position.x, y, head.position.z) + dir * dist);
             }
         }
 
-        // ---------- look at thing ----------
-
-        Vector3 _thingPoint;
+        // ---------- look at / go to ----------
 
         void AimAtThing()
         {
@@ -243,7 +382,6 @@ namespace AICompanion
             {
                 _thingPoint = hit.point;
                 Vector3 toHead = (head.position - hit.point).normalized;
-                // Float next to the thing, slightly toward you so both are in view.
                 _target = hit.point + hit.normal * 0.25f + toHead * 0.2f + Vector3.up * 0.08f;
             }
             else
@@ -253,10 +391,44 @@ namespace AICompanion
             }
         }
 
+        void PlanGoTo(CompanionRoom.Thing t)
+        {
+            CurrentPlace = t.name;
+            _thingPoint = t.center;
+            _goSeat = false;
+
+            if (t.isVolume)
+            {
+                float h = t.top.y - floorY;
+                float footprint = Mathf.Max(t.size.x, t.size.z);
+                if (h >= 0.25f && h <= 1.4f && footprint >= 0.3f)
+                {
+                    // Land on top of it (couch, table, bed, shelf).
+                    _goSeat = true;
+                    _skipLineOfSight = true;
+                    _goTarget = t.top + Vector3.up * bodyRadius * 0.92f;
+                    return;
+                }
+                // Small or tall things (lamp, plant): hover beside, facing it.
+                Vector3 dir = Flat(head.position - t.center);
+                if (dir.sqrMagnitude < 0.0001f) dir = Vector3.forward;
+                _goTarget = t.center + dir * (footprint * 0.5f + 0.25f);
+                _goTarget.y = Mathf.Clamp(t.top.y + 0.1f, floorY + 0.4f, head.position.y);
+                return;
+            }
+
+            // Window, door, screen, picture: hover in front of it.
+            Vector3 n = t.normal.sqrMagnitude > 0.0001f ? t.normal.normalized : Flat(head.position - t.center);
+            _goTarget = t.center + n * 0.35f;
+            _goTarget.y = Mathf.Clamp(_goTarget.y, floorY + 0.35f, head.position.y + 0.3f);
+        }
+
         // ---------- sit ----------
 
         Vector3 FindSitSpot()
         {
+            if (room != null && room.TryFindSeat(head, floorY, out Vector3 seat)) return seat;
+
             Vector3 f = Flat(head.forward);
             bool found = false;
             float bestScore = float.MaxValue;
@@ -281,28 +453,27 @@ namespace AICompanion
             }
 
             if (found) return best;
-            // No furniture found: sit on the floor in front of the player.
-            Vector3 floorSpot = head.position + f * 1.1f;
+            Vector3 floorSpot = head.position + f * 1.1f; // nothing found: sit on the floor in front of you
             floorSpot.y = floorY;
             return floorSpot;
         }
 
         // ---------- helpers ----------
 
-        Vector3 SafeTarget(Vector3 t)
+        Vector3 SafeTarget(Vector3 t, bool lineOfSight)
         {
-            // Not inside your face.
             Vector3 fromHead = t - head.position;
             if (fromHead.magnitude < personalSpace)
                 t = head.position + (fromHead.sqrMagnitude > 0.0001f ? fromHead.normalized : Flat(head.forward)) * personalSpace;
 
-            // Not through walls: keep line of sight from the player.
-            Vector3 d = t - head.position;
-            float len = d.magnitude;
-            if (len > 0.01f && Physics.SphereCast(head.position, bodyRadius * 0.6f, d / len, out RaycastHit hit, len, roomLayers, QueryTriggerInteraction.Ignore))
-                t = head.position + d / len * Mathf.Max(personalSpace, hit.distance - bodyRadius);
+            if (lineOfSight)
+            {
+                Vector3 d = t - head.position;
+                float len = d.magnitude;
+                if (len > 0.01f && Physics.SphereCast(head.position, bodyRadius * 0.6f, d / len, out RaycastHit hit, len, roomLayers, QueryTriggerInteraction.Ignore))
+                    t = head.position + d / len * Mathf.Max(personalSpace, hit.distance - bodyRadius);
+            }
 
-            // Not under the floor.
             t.y = Mathf.Max(t.y, floorY + bodyRadius * 0.92f);
             return t;
         }

@@ -6,7 +6,7 @@ using System.Text;
 using UnityEngine;
 using UnityEngine.Networking;
 
-namespace AICompanion
+namespace Harley
 {
     /// <summary>One turn in the conversation. Images are only attached to the newest user turn.</summary>
     public class ChatTurn
@@ -19,7 +19,7 @@ namespace AICompanion
     /// <summary>
     /// Minimal Claude Messages API client for Unity (no packages needed).
     /// Sends text + an optional camera frame and asks for a reply that matches
-    /// the companion's JSON schema (structured outputs), so parsing never breaks.
+    /// Harley's JSON schema (structured outputs), so parsing never breaks.
     /// </summary>
     public class ClaudeClient : MonoBehaviour
     {
@@ -37,9 +37,12 @@ namespace AICompanion
   ""properties"": {
     ""say"":     { ""type"": ""string"" },
     ""emotion"": { ""type"": ""string"", ""enum"": [""neutral"",""happy"",""excited"",""curious"",""surprised"",""sad"",""sleepy"",""love""] },
-    ""action"":  { ""type"": ""string"", ""enum"": [""stay"",""follow"",""come_close"",""wander"",""look_at_thing"",""sit"",""hide"",""spin"",""dance"",""wave""] }
+    ""action"":  { ""type"": ""string"", ""enum"": [""stay"",""follow"",""come_close"",""wander"",""look_at_thing"",""sit"",""hide"",""spin"",""dance"",""wave"",""go_to""] },
+    ""target"":  { ""type"": ""string"" },
+    ""remember"": { ""type"": ""string"" },
+    ""forget"":  { ""type"": ""boolean"" }
   },
-  ""required"": [""say"",""emotion"",""action""],
+  ""required"": [""say"",""emotion"",""action"",""target"",""remember"",""forget""],
   ""additionalProperties"": false
 }";
 

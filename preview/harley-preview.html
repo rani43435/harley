@@ -1,10 +1,10 @@
-<title>Nova Character Preview</title>
+<title>Harley Character Preview</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
 <style>
-  /* Layout: a stage (Nova floating in a dim "room") beside a compact control deck; stacks on phones. */
+  /* Layout: a stage (Harley floating in a dim "room") beside a compact control deck; stacks on phones. */
   :root {
     --bg: #F5F3FA;
     --surface: #FFFFFF;
@@ -19,7 +19,8 @@
     --bubble: rgba(30, 16, 52, 0.86);
     --bubble-ink: #FFFFFF;
     --bubble-partial: #C4B5FD;
-    --shade: rgba(46, 24, 92, 0.32);
+    --shade: rgba(46, 24, 92, 0.24);
+    --ok: #16A34A;
     --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
     --font-body: "Figtree", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
     --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -30,7 +31,7 @@
       --accent: #A78BFA; --accent-ink: #160F26; --accent-soft: #241C38;
       --stage: #14101C; --stage-glow: rgba(139, 92, 246, 0.22);
       --bubble: rgba(30, 16, 52, 0.9); --bubble-ink: #FFFFFF; --bubble-partial: #C4B5FD;
-      --shade: rgba(139, 92, 246, 0.30);
+      --shade: rgba(139, 92, 246, 0.30); --ok: #4ADE80;
       color-scheme: dark;
     }
   }
@@ -39,7 +40,7 @@
     --accent: #A78BFA; --accent-ink: #160F26; --accent-soft: #241C38;
     --stage: #14101C; --stage-glow: rgba(139, 92, 246, 0.22);
     --bubble: rgba(30, 16, 52, 0.9); --bubble-ink: #FFFFFF; --bubble-partial: #C4B5FD;
-    --shade: rgba(139, 92, 246, 0.30);
+    --shade: rgba(139, 92, 246, 0.30); --ok: #4ADE80;
     color-scheme: dark;
   }
 
@@ -67,28 +68,28 @@
     margin: 0;
     text-wrap: balance;
   }
-  .lede { margin: 0; color: var(--muted); max-width: 60ch; }
+  .lede { margin: 0; color: var(--muted); max-width: 62ch; }
   .specs { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 4px 0 0; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .specs b { color: var(--fg); font-weight: 500; }
 
   .grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
   @media (min-width: 880px) { .grid { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: start; } }
 
+  .stage-col { display: grid; gap: 8px; min-width: 0; }
   .stage {
     position: relative;
-    height: clamp(320px, 58vh, 520px);
+    height: clamp(300px, 50vh, 520px);
     border-radius: 22px;
     background:
       radial-gradient(60% 55% at 50% 46%, var(--stage-glow), transparent 70%),
       var(--stage);
     overflow: hidden;
-    touch-action: pan-y;
     user-select: none;
     -webkit-user-select: none;
   }
-  .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: pointer; }
+  .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+  .stage canvas.grabbing { cursor: grabbing; }
   .stage canvas:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; border-radius: 22px; }
-  .stage-col { display: grid; gap: 8px; min-width: 0; }
   .hint { margin: 0 4px; font-size: 13px; color: var(--muted); }
   .state {
     position: absolute; top: 12px; left: 14px;
@@ -96,9 +97,17 @@
     color: var(--muted); pointer-events: none;
   }
   .state .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); margin-right: 6px; vertical-align: 1px; transition: background .2s; }
-  .state[data-mode="listening"] .dot { background: #22C55E; }
+  .state[data-mode="listening"] .dot { background: var(--ok); }
   .state[data-mode="thinking"] .dot { background: var(--accent); }
   .state[data-mode="speaking"] .dot { background: #F472B6; }
+  .state[data-mode="flying"] .dot { background: #F59E0B; }
+  .soundbtn {
+    position: absolute; top: 8px; right: 10px;
+    font: 500 12px var(--font-mono);
+    padding: 5px 10px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer;
+  }
+  .soundbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   .bubble {
     position: absolute; left: 50%; top: 20%;
@@ -155,6 +164,9 @@
   .toggle[aria-pressed="true"] .sw::after { transform: translateX(11px); }
   .note { margin: 0; font-size: 13px; color: var(--muted); }
   .note code { font-family: var(--font-mono); font-size: 12px; color: var(--fg); }
+  .memory { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+  .memory li { font-size: 14px; padding: 7px 10px; border-radius: 10px; background: var(--accent-soft); min-width: 0; overflow-wrap: anywhere; }
+  .memory li.empty { background: transparent; padding: 0; color: var(--muted); font-size: 13px; }
 
   @media (prefers-reduced-motion: reduce) {
     .bubble, .chip, .btn, .toggle, .toggle .sw, .toggle .sw::after { transition: none; }
@@ -163,25 +175,26 @@
 
 <div class="wrap">
   <header>
-    <h1>Nova</h1>
-    <p class="lede">Your AI companion for Quest, in the same shape, colours and moves as the Unity build. Tap it, pet it, change its mood and run a pretend conversation.</p>
+    <h1>Harley</h1>
+    <p class="lede">Your AI companion for Quest, in the same shape, colours, sounds and moves as the Unity build. Poke it, pet it, grab it and throw it, change its mood, and run a pretend conversation.</p>
     <ul class="specs" aria-label="Specs">
       <li><b>20 cm</b> body</li>
       <li><b>8</b> emotions</li>
-      <li><b>10</b> actions</li>
+      <li><b>11</b> actions</li>
       <li>brain <b>claude-haiku-5-5</b></li>
     </ul>
   </header>
 
   <div class="grid">
     <div class="stage-col">
-    <div class="stage" id="stage">
-      <canvas id="nova" tabindex="0" aria-label="Nova, a round white creature with purple eyes and a purple halo. Press Enter to poke it."></canvas>
-      <div class="state" id="state" data-mode="idle"><span class="dot"></span><span id="stateText">idle</span></div>
-      <div class="bubble show" id="bubble">Hi! I'm Nova. Poke me!</div>
-      <div class="fallback" id="fallback" hidden>This preview needs WebGL, which this browser has turned off.</div>
-    </div>
-    <p class="hint">Tap Nova to poke it. Stroke the top of its head to pet it. Its eyes follow your finger, the way they follow your head in the headset.</p>
+      <div class="stage" id="stage">
+        <canvas id="harley" tabindex="0" aria-label="Harley, a round white creature with purple eyes and a purple halo. Press Enter to poke it."></canvas>
+        <div class="state" id="state" data-mode="idle"><span class="dot"></span><span id="stateText">idle</span></div>
+        <button class="soundbtn" id="sound" type="button" aria-pressed="true">sound on</button>
+        <div class="bubble show" id="bubble">Hi! I'm Harley. Poke me!</div>
+        <div class="fallback" id="fallback" hidden>This preview needs WebGL, which this browser has turned off.</div>
+      </div>
+      <p class="hint">Tap to poke. Stroke the top of its head to pet. Drag it to pick it up, flick to throw. Its eyes follow your finger, the way they follow your head in the headset.</p>
     </div>
 
     <section class="deck" aria-label="Controls">
@@ -196,20 +209,26 @@
           <button class="btn" id="actWave" type="button">Wave</button>
           <button class="btn" id="actSpin" type="button">Spin</button>
           <button class="btn" id="actDance" type="button">Dance</button>
+          <button class="btn" id="actPop" type="button">Pop in</button>
         </div>
       </div>
 
       <div class="group">
         <span class="label">Conversation</span>
         <div class="row">
-          <button class="btn primary" id="talk" type="button">Talk to Nova</button>
+          <button class="btn primary" id="talk" type="button">Talk to Harley</button>
           <button class="toggle" id="tListen" type="button" aria-pressed="false"><span class="sw" aria-hidden="true"></span>Listening</button>
           <button class="toggle" id="tThink" type="button" aria-pressed="false"><span class="sw" aria-hidden="true"></span>Thinking</button>
         </div>
-        <p class="note">Talk runs the real loop: listen, think (the halo turns into a spinner), then answer with a mood and a move. The answers here are written examples, not live Claude replies.</p>
+        <p class="note">Talk runs the real loop: listen, think (the halo turns into a spinner), then answer with a mood, a move and the babble voice. These answers are written examples, not live Claude replies.</p>
       </div>
 
-      <p class="note">In the headset Nova also does <code>follow</code>, <code>wander</code>, <code>sit</code>, <code>hide</code>, <code>come_close</code> and <code>look_at_thing</code>, which move it around your real room.</p>
+      <div class="group">
+        <span class="label">Remembers about you</span>
+        <ul class="memory" id="memory"><li class="empty">Nothing yet. Keep talking and Harley learns your name.</li></ul>
+      </div>
+
+      <p class="note">In the headset Harley also does <code>go_to</code> (fly to your couch, window or screen from the room scan), <code>follow</code>, <code>wander</code>, <code>sit</code>, <code>hide</code>, <code>come_close</code> and <code>look_at_thing</code>.</p>
     </section>
   </div>
 </div>
@@ -220,10 +239,11 @@
   "use strict";
 
   const stage = document.getElementById("stage");
-  const canvas = document.getElementById("nova");
+  const canvas = document.getElementById("harley");
   const bubble = document.getElementById("bubble");
   const stateEl = document.getElementById("state");
   const stateText = document.getElementById("stateText");
+  const memoryEl = document.getElementById("memory");
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // ---------- emotion chips ----------
@@ -236,6 +256,111 @@
     b.setAttribute("aria-pressed", e === "happy" ? "true" : "false");
     b.addEventListener("click", function () { setEmotion(e); });
     emoBox.appendChild(b); chips[e] = b;
+  });
+
+  // ---------- sound (WebAudio, same recipes as CompanionSounds.cs) ----------
+  let ac = null, master = null, soundOn = true;
+  const vowelWaves = [];
+  const VOWELS = [[1, .7, .5, .3], [1, .35, .6, .2], [1, .2, .15, .45], [1, .8, .25, .1], [1, .5, .1, .05]];
+  function ensureAudio() {
+    if (!soundOn) return false;
+    try {
+      if (!ac) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return false;
+        ac = new AC();
+        master = ac.createGain();
+        master.gain.value = 0.45;
+        master.connect(ac.destination);
+        VOWELS.forEach(function (h) {
+          const real = new Float32Array(h.length + 1), imag = new Float32Array(h.length + 1);
+          h.forEach(function (w, i) { imag[i + 1] = w; });
+          vowelWaves.push(ac.createPeriodicWave(real, imag));
+        });
+      }
+      if (ac.state === "suspended") ac.resume();
+      return true;
+    } catch (e) { ac = null; return false; }
+  }
+  function env(g, at, attack, dur, peak) {
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(peak, at + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+  }
+  function tone(o) {
+    if (!soundOn || !ac) return;
+    const at = ac.currentTime + (o.delay || 0);
+    const osc = ac.createOscillator(), g = ac.createGain();
+    if (o.wave) osc.setPeriodicWave(o.wave); else osc.type = o.type || "sine";
+    osc.frequency.setValueAtTime(o.f0, at);
+    if (o.f1) osc.frequency.exponentialRampToValueAtTime(o.f1, at + o.dur * 0.9);
+    if (o.lfo) {
+      const l = ac.createOscillator(), lg = ac.createGain();
+      l.frequency.value = o.lfo; lg.gain.setValueAtTime(o.lfoDepth || 60, at);
+      lg.gain.exponentialRampToValueAtTime(1, at + o.dur);
+      l.connect(lg); lg.connect(osc.frequency); l.start(at); l.stop(at + o.dur + 0.05);
+    }
+    env(g, at, o.attack || 0.005, o.dur, o.gain || 0.3);
+    osc.connect(g); g.connect(master);
+    osc.start(at); osc.stop(at + o.dur + 0.05);
+  }
+  const SFX = {
+    pop: function () { tone({ f0: 320, f1: 980, dur: 0.14, gain: 0.35 }); },
+    boing: function (p) { tone({ f0: 430 * (p || 1), dur: 0.38, gain: 0.35, lfo: 17, lfoDepth: 150 }); },
+    chirpUp: function (p) { tone({ f0: 760 * (p || 1), dur: 0.1, gain: 0.25 }); tone({ f0: 1180 * (p || 1), dur: 0.11, gain: 0.25, delay: 0.11 }); },
+    chirpDown: function () { tone({ f0: 900, f1: 430, dur: 0.3, gain: 0.25 }); },
+    ding: function () { tone({ f0: 880, dur: 0.11, gain: 0.18 }); tone({ f0: 1320, dur: 0.12, gain: 0.18, delay: 0.11 }); },
+    blip: function () { tone({ f0: 1250, f1: 1150, dur: 0.06, gain: 0.12 }); },
+    whee: function () { tone({ f0: 380, f1: 1600, dur: 0.5, gain: 0.3, lfo: 9, lfoDepth: 40 }); },
+    thud: function (v) { tone({ f0: 160, f1: 90, dur: 0.18, gain: Math.min(0.5, 0.15 + (v || 1) * 0.12) }); },
+    purr: function () { tone({ f0: 170, dur: 0.9, gain: 0.22, attack: 0.08, lfo: 24, lfoDepth: 12 }); }
+  };
+
+  let sylTimes = [];
+  function babble(text, emo) {
+    // Returns duration in seconds. Same rhythm as CompanionSounds.Babble.
+    const base = { excited: 1.25, surprised: 1.3, happy: 1.12, curious: 1.15, love: 1.05, sad: 0.85, sleepy: 0.8 }[emo] || 1;
+    const step = (emo === "sleepy" || emo === "sad") ? 0.13 : emo === "excited" ? 0.095 : 0.11;
+    let t = 0.05;
+    const plan = [];
+    text.split(" ").forEach(function (word) {
+      const letters = (word.match(/[\p{L}\p{N}]/gu) || []).length;
+      if (letters > 0) {
+        const n = Math.min(4, Math.max(1, Math.round(letters / 2.6)));
+        for (let i = 0; i < n; i++) {
+          let p = base * (0.9 + Math.random() * 0.22);
+          if (/[?؟]$/.test(word) && i === n - 1) p *= 1.25;
+          plan.push({ t: t, p: p, v: Math.floor(Math.random() * vowelWaves.length || 0) });
+          t += step;
+        }
+      }
+      const end = word.slice(-1);
+      t += /[.!?؟]/.test(end) ? 0.28 : /[,;:،]/.test(end) ? 0.16 : 0.04;
+    });
+    if (soundOn && ac) {
+      const now = ac.currentTime;
+      sylTimes = plan.map(function (s) { return now + s.t; });
+      plan.forEach(function (s) {
+        const at = now + s.t;
+        const osc = ac.createOscillator(), g = ac.createGain();
+        if (vowelWaves.length) osc.setPeriodicWave(vowelWaves[s.v % vowelWaves.length]);
+        const f = 600 * s.p;
+        osc.frequency.setValueAtTime(f, at);
+        osc.frequency.linearRampToValueAtTime(f * 0.94, at + 0.085);
+        env(g, at, 0.006, 0.085, 0.22);
+        osc.connect(g); g.connect(master);
+        osc.start(at); osc.stop(at + 0.1);
+      });
+    } else sylTimes = [];
+    return t;
+  }
+
+  const soundBtn = document.getElementById("sound");
+  soundBtn.addEventListener("click", function () {
+    soundOn = !soundOn;
+    soundBtn.setAttribute("aria-pressed", soundOn ? "true" : "false");
+    soundBtn.textContent = soundOn ? "sound on" : "sound off";
+    if (soundOn) { ensureAudio(); SFX.chirpUp(); }
   });
 
   if (typeof THREE === "undefined") { document.getElementById("fallback").hidden = false; return; }
@@ -279,10 +404,12 @@
 
   const sphere = new THREE.SphereGeometry(0.5, 48, 32);
 
-  // Hierarchy mirrors the Unity builder: Visual > SquashRoot > Body/Eyes/Mouth/Cheeks, hands and halo on Visual.
+  // rig = where Harley is (moved when grabbed or thrown); visual = bob, tilt, emotions.
+  const rig = new THREE.Group();
+  scene.add(rig);
   const visual = new THREE.Group();
   visual.rotation.order = "YXZ";
-  scene.add(visual);
+  rig.add(visual);
   const squash = new THREE.Group();
   visual.add(squash);
 
@@ -327,7 +454,7 @@
   const shadowTex = new THREE.CanvasTexture(shadowCanvas);
   const shadow = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 0.28), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }));
   shadow.rotation.x = -Math.PI / 2;
-  shadow.position.y = -0.17;
+  shadow.position.y = -0.15;
   scene.add(shadow);
   function paintShadow() {
     const c = shadowCanvas.getContext("2d");
@@ -344,17 +471,51 @@
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paintShadow);
   new MutationObserver(paintShadow).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
+  // Sparkles (pop-in, petting, learning something about you)
+  const SPARK_N = 48;
+  const sparkGeo = new THREE.BufferGeometry();
+  const sparkPos = new Float32Array(SPARK_N * 3);
+  sparkGeo.setAttribute("position", new THREE.BufferAttribute(sparkPos, 3));
+  const dot = document.createElement("canvas");
+  dot.width = dot.height = 32;
+  const dctx = dot.getContext("2d");
+  const dg = dctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+  dg.addColorStop(0, "rgba(255,255,255,1)");
+  dg.addColorStop(1, "rgba(255,255,255,0)");
+  dctx.fillStyle = dg;
+  dctx.fillRect(0, 0, 32, 32);
+  const sparkMat = new THREE.PointsMaterial({ color: COL.lavender.clone(), size: 0.02, map: new THREE.CanvasTexture(dot), transparent: true, opacity: 0, depthWrite: false });
+  const sparks = new THREE.Points(sparkGeo, sparkMat);
+  scene.add(sparks);
+  const sparkVel = [];
+  let sparkT = -1;
+  function burst(color) {
+    sparkMat.color.copy(color || COL.lavender);
+    for (let i = 0; i < SPARK_N; i++) {
+      const d = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.3, Math.random() - 0.5).normalize();
+      sparkPos[i * 3] = rig.position.x + d.x * 0.1;
+      sparkPos[i * 3 + 1] = rig.position.y + d.y * 0.1;
+      sparkPos[i * 3 + 2] = rig.position.z + d.z * 0.1;
+      sparkVel[i] = d.multiplyScalar(0.12 + Math.random() * 0.25);
+    }
+    sparkGeo.attributes.position.needsUpdate = true;
+    sparkT = 0;
+  }
+
   // ---------- state ----------
+  const HOME = new THREE.Vector3(0, 0, 0);
   const st = {
     base: "happy", over: null, overUntil: 0,
     listening: false, thinking: false, speaking: false,
     talk: 0, squash: 0, squashVel: 0,
-    spinT: -1, danceT: -1, waveT: -1,
-    blinkT: -1, nextBlink: 1.8, haloSpin: 0,
+    spinT: -1, danceT: -1, waveT: -1, spawnT: -1,
+    blinkT: -1, nextBlink: 1.8, haloSpin: 0, tumble: 0,
     look: new THREE.Vector2(0, 0), lookTarget: new THREE.Vector2(0, 0), nextGlance: 2,
     pointerActive: false, eyeShift: new THREE.Vector2(0, 0),
-    glow: COL.purple.clone(), yaw: 0,
-    speakText: "", speakStart: 0, speakDur: 0, bubbleHideAt: 3.2, dots: false
+    glow: COL.purple.clone(),
+    speakText: "", speakStart: 0, speakDur: 0, bubbleHideAt: 3.2, dots: false,
+    // place: home | held | flying | resting | placed | returning
+    place: "home", vel: new THREE.Vector3(), holdTarget: new THREE.Vector3(), placeUntil: 0, flyUntil: 0, lastBounce: 0
   };
   let t = 0;
 
@@ -367,7 +528,7 @@
   function flashEmotion(e, secs) { st.over = e; st.overUntil = t + secs; }
 
   function setMode() {
-    const mode = st.listening ? "listening" : st.thinking ? "thinking" : st.speaking ? "speaking" : "idle";
+    const mode = st.place === "flying" ? "flying" : st.listening ? "listening" : st.thinking ? "thinking" : st.speaking ? "speaking" : "idle";
     stateEl.dataset.mode = mode;
     stateText.textContent = mode;
   }
@@ -381,11 +542,14 @@
   }
 
   function say(text) {
+    ensureAudio();
     st.speaking = true;
     st.speakText = text;
     st.speakStart = t;
     const words = text.split(/\s+/).filter(Boolean).length;
-    st.speakDur = Math.min(15, Math.max(1.2, words / 2.6 + 0.6));
+    const estimate = Math.min(15, Math.max(1.2, words / 2.6 + 0.6));
+    const b = babble(text, emotion());
+    st.speakDur = soundOn && ac ? Math.max(0.8, b + 0.15) : estimate;
     showBubble("", false, st.speakDur + 2.5);
     setMode();
   }
@@ -393,7 +557,7 @@
   function setListening(on) {
     st.listening = on;
     document.getElementById("tListen").setAttribute("aria-pressed", on ? "true" : "false");
-    if (on) { showBubble(".", true, 999); st.dots = true; }
+    if (on) { showBubble(".", true, 999); st.dots = true; SFX.ding(); }
     else if (st.dots) { st.dots = false; st.bubbleHideAt = t + 0.4; }
     setMode();
   }
@@ -401,29 +565,50 @@
   function setThinking(on) {
     st.thinking = on;
     document.getElementById("tThink").setAttribute("aria-pressed", on ? "true" : "false");
+    if (on) SFX.blip();
     setMode();
   }
 
+  const memory = [];
+  function remember(fact) {
+    if (!fact || memory.indexOf(fact) >= 0) return;
+    memory.push(fact);
+    memoryEl.innerHTML = "";
+    memory.forEach(function (f) { const li = document.createElement("li"); li.textContent = f; memoryEl.appendChild(li); });
+    burst(COL.lavender);
+  }
+
+  function pick(list) { return list[Math.floor(Math.random() * list.length)]; }
+
   function poke() {
+    ensureAudio();
     st.squashVel += 9;
     flashEmotion("surprised", 1.2);
-    if (!st.speaking && Math.random() < 0.6) {
-      const lines = ["Hey! That tickles.", "Boop!", "Again? Okay, one more.", "Hehe, stop it!"];
-      say(lines[Math.floor(Math.random() * lines.length)]);
-    }
+    SFX.boing(0.9 + Math.random() * 0.25);
+    if (!st.speaking && Math.random() < 0.6) say(pick(["Hey! That tickles.", "Boop!", "Again? Okay, one more.", "Hehe, stop it!"]));
+  }
+
+  function popIn() {
+    ensureAudio();
+    st.spawnT = 0;
+    visual.scale.setScalar(0.001);
+    burst(COL.lavender);
+    SFX.pop();
   }
 
   // ---------- controls ----------
-  document.getElementById("actWave").addEventListener("click", function () { st.waveT = 0; });
-  document.getElementById("actSpin").addEventListener("click", function () { st.spinT = 0; });
-  document.getElementById("actDance").addEventListener("click", function () { st.danceT = 0; });
-  document.getElementById("tListen").addEventListener("click", function () { setListening(!st.listening); });
-  document.getElementById("tThink").addEventListener("click", function () { setThinking(!st.thinking); });
+  document.getElementById("actWave").addEventListener("click", function () { ensureAudio(); st.waveT = 0; SFX.chirpUp(); });
+  document.getElementById("actSpin").addEventListener("click", function () { ensureAudio(); st.spinT = 0; SFX.whee(); });
+  document.getElementById("actDance").addEventListener("click", function () { ensureAudio(); st.danceT = 0; SFX.chirpUp(1.2); });
+  document.getElementById("actPop").addEventListener("click", popIn);
+  document.getElementById("tListen").addEventListener("click", function () { ensureAudio(); setListening(!st.listening); });
+  document.getElementById("tThink").addEventListener("click", function () { ensureAudio(); setThinking(!st.thinking); });
 
   const SCRIPT = [
-    { you: "Hey Nova, can you see me?", say: "Loud and clear! Your room looks cozy from up here.", emotion: "happy", action: "wave" },
-    { you: "What do you think of this?", say: "Ooh, is that a bass guitar? Play me something!", emotion: "excited", action: "spin" },
-    { you: "I'm a bit tired today.", say: "Then let's take it slow. I'll stay right here with you.", emotion: "love", action: null },
+    { you: "Hey Harley, can you see me?", say: "Loud and clear! Your room looks cozy from up here.", emotion: "happy", action: "wave" },
+    { you: "I'm Rani, by the way.", say: "Nice to meet you, Rani! I won't forget that.", emotion: "love", action: null, remember: "Their name is Rani" },
+    { you: "What do you think of this?", say: "Ooh, is that a bass guitar? Play me something!", emotion: "excited", action: "spin", remember: "Plays bass guitar" },
+    { you: "I'm a bit tired today.", say: "Then let's take it slow, Rani. I'll stay right here with you.", emotion: "love", action: null },
     { you: "Dance for me!", say: "Only if you dance too. Deal?", emotion: "excited", action: "dance" },
     { you: "What's that on the shelf?", say: "Hmm, a little plant? It looks thirsty. When did you last water it?", emotion: "curious", action: null }
   ];
@@ -432,6 +617,7 @@
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
   talkBtn.addEventListener("click", async function () {
+    ensureAudio();
     talkBtn.disabled = true;
     const line = SCRIPT[scriptIdx++ % SCRIPT.length];
     st.speaking = false;
@@ -447,6 +633,7 @@
     await wait(1100);
     setThinking(false);
     setEmotion(line.emotion);
+    if (line.remember) remember(line.remember);
     if (line.action === "wave") st.waveT = 0;
     if (line.action === "spin") st.spinT = 0;
     if (line.action === "dance") st.danceT = 0;
@@ -454,61 +641,129 @@
     talkBtn.disabled = false;
   });
 
-  // ---------- pointer: look, poke, pet ----------
+  // ---------- pointer: look, poke, pet, grab, throw ----------
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
-  let petting = false, petDist = 0, lastX = 0;
+  const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+  let down = null, petting = false, petDist = 0, lastX = 0;
+  const trail = [];
+  const grabOffset = new THREE.Vector3();
 
   function toNdc(ev) {
     const r = canvas.getBoundingClientRect();
     ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
   }
+  function worldAt(ev) {
+    toNdc(ev);
+    raycaster.setFromCamera(ndc, camera);
+    const p = new THREE.Vector3();
+    raycaster.ray.intersectPlane(plane, p);
+    return p;
+  }
+
+  canvas.addEventListener("pointerdown", function (ev) {
+    ensureAudio();
+    toNdc(ev);
+    raycaster.setFromCamera(ndc, camera);
+    const hit = raycaster.intersectObject(body, false)[0];
+    down = { x: ev.clientX, y: ev.clientY, onBody: !!hit, onTop: false, moved: false };
+    if (!hit) return;
+    const local = body.worldToLocal(hit.point.clone()); // radius 0.5 in body space
+    down.onTop = local.y > 0.28;
+    if (down.onTop) { petting = true; petDist = 0; lastX = ev.clientX; }
+    try { canvas.setPointerCapture(ev.pointerId); } catch (e) { /* not supported */ }
+  });
 
   canvas.addEventListener("pointermove", function (ev) {
     toNdc(ev);
     st.pointerActive = true;
-    st.lookTarget.set(THREE.MathUtils.clamp(ndc.x * 1.4, -1, 1), THREE.MathUtils.clamp(ndc.y * 1.4, -1, 1));
+    st.lookTarget.set(THREE.MathUtils.clamp((ndc.x - rig.position.x * 4) * 1.4, -1, 1), THREE.MathUtils.clamp(ndc.y * 1.4, -1, 1));
+    if (!down) return;
+    const dx = ev.clientX - down.x, dy = ev.clientY - down.y;
+    if (Math.hypot(dx, dy) > 8) down.moved = true;
+
     if (petting) {
       petDist += Math.abs(ev.clientX - lastX);
       lastX = ev.clientX;
       if (petDist > 140) {
         petDist = 0;
         flashEmotion("love", 3);
+        burst(COL.pink);
+        SFX.purr();
         if (!st.speaking) say(Math.random() < 0.5 ? "Mmm, more please." : "That's nice...");
       }
+      return;
+    }
+
+    if (down.onBody && down.moved && st.place !== "held") {
+      // pick up
+      st.place = "held";
+      grabOffset.copy(rig.position).sub(worldAt(ev));
+      trail.length = 0;
+      flashEmotion("excited", 30);
+      SFX.chirpUp(1.2);
+      canvas.classList.add("grabbing");
+      setMode();
+    }
+    if (st.place === "held") {
+      st.holdTarget.copy(worldAt(ev)).add(grabOffset);
+      trail.push({ t: performance.now() / 1000, p: st.holdTarget.clone() });
+      while (trail.length > 2 && trail[trail.length - 1].t - trail[0].t > 0.1) trail.shift();
     }
   });
-  canvas.addEventListener("pointerleave", function () { st.pointerActive = false; petting = false; });
-  canvas.addEventListener("pointerup", function () { petting = false; });
-  canvas.addEventListener("pointercancel", function () { petting = false; });
-  canvas.addEventListener("pointerdown", function (ev) {
-    toNdc(ev);
-    raycaster.setFromCamera(ndc, camera);
-    const hit = raycaster.intersectObject(body, false)[0];
-    if (!hit) return;
-    const local = body.worldToLocal(hit.point.clone()); // radius 0.5 in body space
-    if (local.y > 0.28) { petting = true; petDist = 0; lastX = ev.clientX; }
-    else poke();
-  });
+
+  function endPointer(cancelled) {
+    if (st.place === "held") {
+      canvas.classList.remove("grabbing");
+      const v = new THREE.Vector3();
+      if (trail.length >= 2) {
+        const a = trail[0], b = trail[trail.length - 1];
+        const span = b.t - a.t;
+        if (span > 0.01) v.copy(b.p).sub(a.p).divideScalar(span);
+      }
+      if (!cancelled && v.length() > 0.9) {
+        st.place = "flying";
+        st.vel.copy(v.multiplyScalar(1.1)).clampLength(0, 6);
+        st.flyUntil = t + 2.5;
+        flashEmotion("surprised", 3);
+        SFX.whee();
+      } else {
+        st.place = "placed";
+        st.placeUntil = t + 6;
+        flashEmotion("happy", 1.5);
+        SFX.chirpUp(0.95);
+      }
+      setMode();
+    } else if (down && down.onBody && !down.onTop && !down.moved && !cancelled) {
+      poke();
+    }
+    petting = false;
+    down = null;
+  }
+  canvas.addEventListener("pointerup", function () { endPointer(false); });
+  canvas.addEventListener("pointercancel", function () { endPointer(true); });
+  canvas.addEventListener("pointerleave", function () { st.pointerActive = false; });
   canvas.addEventListener("keydown", function (ev) {
     if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); poke(); }
   });
 
   // ---------- sizing ----------
+  let halfW = 0.3, halfH = 0.2;
   function resize() {
     const w = stage.clientWidth, h = stage.clientHeight;
     if (!w || !h) return;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
-    // Keep Nova framed on narrow screens.
     camera.position.z = camera.aspect < 0.85 ? 0.62 / Math.max(0.62, camera.aspect / 0.85) : 0.62;
     camera.updateProjectionMatrix();
+    halfH = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.z;
+    halfW = halfH * camera.aspect;
   }
   if ("ResizeObserver" in window) new ResizeObserver(resize).observe(stage);
   window.addEventListener("resize", resize);
   resize();
 
-  // ---------- animation (ported from CompanionVisual.cs) ----------
+  // ---------- animation (ported from CompanionVisual.cs / CompanionMovement.cs) ----------
   const clock = new THREE.Clock();
   const tmp = new THREE.Vector3();
   const targetGlow = new THREE.Color();
@@ -516,24 +771,68 @@
   function easeInOut(x) { return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; }
   function damp(rate, dt) { return 1 - Math.exp(-rate * dt); }
 
+  function updatePlace(dt) {
+    const floor = -0.05, minX = -halfW + 0.12, maxX = halfW - 0.12, top = camera.position.y + halfH - 0.12;
+    if (st.place === "held") {
+      rig.position.lerp(st.holdTarget, damp(25, dt));
+    } else if (st.place === "flying") {
+      st.vel.y -= 2.5 * dt;
+      st.vel.multiplyScalar(Math.exp(-0.8 * dt));
+      rig.position.addScaledVector(st.vel, dt);
+      let impact = 0;
+      if (rig.position.x < minX) { rig.position.x = minX; impact = Math.abs(st.vel.x); st.vel.x = Math.abs(st.vel.x) * 0.55; }
+      if (rig.position.x > maxX) { rig.position.x = maxX; impact = Math.abs(st.vel.x); st.vel.x = -Math.abs(st.vel.x) * 0.55; }
+      if (rig.position.y > top) { rig.position.y = top; impact = Math.abs(st.vel.y); st.vel.y = -Math.abs(st.vel.y) * 0.55; }
+      if (rig.position.y < floor) {
+        rig.position.y = floor;
+        if (st.vel.y < 0) { impact = -st.vel.y; st.vel.y = -st.vel.y * 0.45; st.vel.x *= 0.75; }
+      }
+      rig.position.z = THREE.MathUtils.lerp(rig.position.z, 0, damp(4, dt));
+      if (impact > 0.4 && t - st.lastBounce > 0.12) { st.lastBounce = t; SFX.thud(impact); st.squashVel += Math.min(8, impact * 2); }
+      if ((rig.position.y <= floor + 0.005 && st.vel.length() < 0.25) || t > st.flyUntil) {
+        st.place = "resting";
+        st.placeUntil = t + 1.6;
+        st.squashVel += 6;
+        burst(COL.lavender);
+        setEmotion("excited");
+        say(pick(["Whee! Again!", "My halo is spinning... wait, that's me.", "Rude! ...do it again.", "I can fly! Sort of."]));
+        setMode();
+      }
+    } else if (st.place === "resting" || st.place === "placed") {
+      if (t > st.placeUntil) st.place = "returning";
+    } else if (st.place === "returning") {
+      rig.position.lerp(HOME, damp(3, dt));
+      if (rig.position.distanceTo(HOME) < 0.004) { rig.position.copy(HOME); st.place = "home"; setMode(); }
+    }
+  }
+
   function frame() {
     const dt = Math.min(clock.getDelta(), 0.05);
     t += dt;
     const emo = emotion();
+    updatePlace(dt);
 
-    // talking amount (syllable rhythm, same as the no-TTS path in CompanionVoice)
+    // talking amount: follow the babble syllables when sound is on, else a syllable-like rhythm
     if (st.speaking && t - st.speakStart >= st.speakDur) { st.speaking = false; st.bubbleHideAt = t + 2.5; setMode(); }
     let talkTarget = 0;
     if (st.speaking) {
-      const syl = 0.5 + 0.5 * Math.sin(t * 17);
-      const wob = 0.5 + 0.5 * Math.sin(t * 5.3 + Math.sin(t * 2.1) * 2);
-      talkTarget = syl * (0.45 + 0.55 * wob);
+      if (soundOn && ac && sylTimes.length) {
+        const now = ac.currentTime;
+        let last = -1;
+        for (let i = 0; i < sylTimes.length && sylTimes[i] <= now; i++) last = sylTimes[i];
+        talkTarget = last < 0 ? 0 : Math.max(0, 1 - (now - last) / 0.1);
+      } else {
+        const syl = 0.5 + 0.5 * Math.sin(t * 17);
+        const wob = 0.5 + 0.5 * Math.sin(t * 5.3 + Math.sin(t * 2.1) * 2);
+        talkTarget = syl * (0.45 + 0.55 * wob);
+      }
     }
     st.talk += (talkTarget - st.talk) * damp(25, dt);
 
-    // bob
+    // bob (not while carried or flying)
+    const floating = st.place === "home" || st.place === "returning" || st.place === "placed";
     const bobSpeed = emo === "excited" ? 1.4 : (emo === "sad" || emo === "sleepy") ? 0.35 : 0.6;
-    const bobAmp = reduceMotion ? 0.004 : 0.012;
+    const bobAmp = !floating ? 0 : reduceMotion ? 0.004 : 0.012;
     let y = Math.sin(t * Math.PI * 2 * bobSpeed) * bobAmp;
 
     // look: pointer, or idle glances
@@ -543,12 +842,15 @@
     }
     st.look.lerp(st.lookTarget, damp(6, dt));
 
-    // turn toward you (the movement script yaws toward the player's head)
     let yaw = st.look.x * 0.3;
     let pitch = -st.look.y * 0.12;
     let roll = 0;
     if (emo === "curious") roll += THREE.MathUtils.degToRad(12);
     if (st.thinking) pitch -= THREE.MathUtils.degToRad(6);
+    if (st.place === "held") roll += THREE.MathUtils.degToRad(Math.sin(t * 7) * 9);
+    if (st.place === "flying") st.tumble += dt * Math.PI * 4;
+    else st.tumble = THREE.MathUtils.lerp(st.tumble, Math.round(st.tumble / (Math.PI * 2)) * Math.PI * 2, damp(8, dt));
+    roll += st.tumble;
 
     if (st.spinT >= 0) {
       st.spinT += dt / 0.8;
@@ -563,6 +865,13 @@
       y += Math.abs(Math.sin(st.danceT * Math.PI * 2 * 2)) * 0.035;
       roll += THREE.MathUtils.degToRad(Math.sin(st.danceT * Math.PI * 2 * 1.2) * 10);
       if (st.danceT > 3.2) st.danceT = -1;
+    }
+    if (st.spawnT >= 0) {
+      st.spawnT += dt / 0.7;
+      const k = Math.min(1, st.spawnT);
+      const s = k >= 1 ? 1 : 1 - Math.cos(k * Math.PI * 3.5) * Math.exp(-6 * k);
+      visual.scale.setScalar(Math.max(0.001, s));
+      if (st.spawnT >= 1) { st.spawnT = -1; visual.scale.setScalar(1); }
     }
     visual.position.y = y;
     visual.rotation.set(pitch, yaw, roll);
@@ -616,8 +925,7 @@
     mouth.position.y = -0.027 + (emo === "sad" ? -0.004 : 0);
 
     // cheeks
-    const blush = emo === "love" || emo === "happy" || emo === "excited";
-    cheekL.visible = cheekR.visible = blush;
+    cheekL.visible = cheekR.visible = (emo === "love" || emo === "happy" || emo === "excited");
 
     // hands
     const hl = HAND_L.clone().add(tmp.set(0, Math.sin(t * 2.1) * 0.006, 0));
@@ -626,11 +934,11 @@
       hl.add(tmp.set(0, Math.sin(t * 5) * 0.008 * st.talk, 0.01 * st.talk));
       hr.add(tmp.set(0, Math.sin(t * 5 + 2) * 0.008 * st.talk, 0.01 * st.talk));
     }
+    if (st.place === "held" || st.place === "flying") { hl.y += 0.05; hr.y += 0.05; } // arms up, wheee
     if (st.waveT >= 0) {
       st.waveT += dt;
       const up = Math.min(1, st.waveT * 5) * Math.min(1, Math.max(0, (1.8 - st.waveT) * 5));
-      const waveTo = HAND_R.clone().add(tmp.set(0.03 + Math.sin(st.waveT * 16) * 0.022, 0.11, 0.02));
-      hr.lerp(waveTo, up);
+      hr.lerp(HAND_R.clone().add(tmp.set(0.03 + Math.sin(st.waveT * 16) * 0.022, 0.11, 0.02)), up);
       if (st.waveT > 1.8) st.waveT = -1;
     }
     if (st.danceT >= 0) {
@@ -656,16 +964,31 @@
     const spinSpeed = st.thinking ? 360 : st.listening ? 120 : (reduceMotion ? 0 : 30);
     st.haloSpin += THREE.MathUtils.degToRad(spinSpeed) * dt;
     haloSpinner.rotation.y = st.haloSpin;
-    const rScale = (st.listening ? 1.2 : 1) * (1 + Math.sin(t * 2) * 0.03 + st.talk * 0.08);
-    haloSpinner.scale.setScalar(rScale);
+    haloSpinner.scale.setScalar((st.listening ? 1.2 : 1) * (1 + Math.sin(t * 2) * 0.03 + st.talk * 0.08));
     ring.visible = !st.thinking;
     arc.visible = st.thinking;
     haloMat.color.copy(st.glow);
     haloMat.opacity = st.thinking ? 0.95 : st.listening ? 1 : 0.75;
 
-    // shadow breathes with the bob
-    const sh = 1 - y * 4;
+    // shadow follows Harley and shrinks with height
+    const height = Math.max(0, rig.position.y + y);
+    shadow.position.x = rig.position.x;
+    const sh = Math.max(0.35, 1 - height * 4);
     shadow.scale.set(sh, sh, 1);
+    shadow.material.opacity = Math.max(0.35, 1 - height * 2.5);
+
+    // sparkles
+    if (sparkT >= 0) {
+      sparkT += dt;
+      for (let i = 0; i < SPARK_N; i++) {
+        sparkPos[i * 3] += sparkVel[i].x * dt;
+        sparkPos[i * 3 + 1] += (sparkVel[i].y + 0.05) * dt;
+        sparkPos[i * 3 + 2] += sparkVel[i].z * dt;
+      }
+      sparkGeo.attributes.position.needsUpdate = true;
+      sparkMat.opacity = Math.max(0, 1 - sparkT / 0.9);
+      if (sparkT > 0.9) { sparkT = -1; sparkMat.opacity = 0; }
+    }
 
     // speech bubble: typewriter + listening dots + fade
     if (st.speaking) {
@@ -680,10 +1003,9 @@
     const showB = st.speaking || st.listening || t < st.bubbleHideAt;
     bubble.classList.toggle("show", showB && bubble.textContent.length > 0);
 
-    // place the bubble above Nova's head
-    tmp.set(0, 0.165 + y, 0).project(camera);
+    tmp.set(rig.position.x, rig.position.y + 0.165 + y, rig.position.z).project(camera);
     bubble.style.left = ((tmp.x * 0.5 + 0.5) * 100).toFixed(2) + "%";
-    bubble.style.top = ((-tmp.y * 0.5 + 0.5) * 100).toFixed(2) + "%";
+    bubble.style.top = (Math.max(14, (-tmp.y * 0.5 + 0.5) * 100)).toFixed(2) + "%";
 
     renderer.render(scene, camera);
     requestAnimationFrame(frame);
