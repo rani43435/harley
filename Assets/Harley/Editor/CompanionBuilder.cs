@@ -350,7 +350,7 @@ namespace Harley.EditorTools
         }
 
         static string KeyNote(CompanionConfig config) =>
-            string.IsNullOrWhiteSpace(config.apiKey)
+            !config.HasBrainKey
                 ? "• Paste your Claude API key (and your city for weather): Harley > Select Config."
                 : "• API key is set.";
 

@@ -2,6 +2,8 @@ using UnityEngine;
 
 namespace Harley
 {
+    public enum AiProvider { Claude, Gemini }
+
     /// <summary>
     /// All of Harley's knobs in one asset.
     /// The asset holds your API key, so it is git-ignored (see .gitignore).
@@ -9,6 +11,18 @@ namespace Harley
     [CreateAssetMenu(fileName = "CompanionConfig", menuName = "Harley/Config")]
     public class CompanionConfig : ScriptableObject
     {
+        [Tooltip("Which AI is Harley's brain. Gemini has a free tier (aistudio.google.com); Claude needs paid API credits.")]
+        public AiProvider provider = AiProvider.Claude;
+
+        /// <summary>True when the chosen AI has a key.</summary>
+        public bool HasBrainKey => !string.IsNullOrWhiteSpace(provider == AiProvider.Gemini ? geminiApiKey : apiKey) &&
+                                   (provider == AiProvider.Gemini || apiKey.Trim().StartsWith("sk-"));
+
+        [Header("Gemini (free tier: aistudio.google.com > Get API key)")]
+        public string geminiApiKey = "";
+        [Tooltip("gemini-flash-latest = Google's current fast model. If a name stops working Harley picks a current Flash model by itself.")]
+        public string geminiModel = "gemini-flash-latest";
+
         [Header("Claude API  (never commit this asset to git)")]
         public string apiKey = "";
         [Tooltip("claude-haiku-5-5 is the fastest, which matters for a talking character. claude-sonnet-5-5 is smarter but slower.")]

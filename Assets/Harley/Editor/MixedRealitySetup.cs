@@ -96,7 +96,7 @@ namespace Harley.EditorTools
             }
 
             var config = AssetDatabase.LoadAssetAtPath<CompanionConfig>("Assets/Harley/CompanionConfig.asset");
-            string keys = config == null || string.IsNullOrWhiteSpace(config.apiKey) ? "\n• Paste your Claude API key: Harley > Select Config." : "";
+            string keys = config == null || !config.HasBrainKey ? "\n• Paste your AI key: Harley > Select Config (Gemini is free: aistudio.google.com)." : "";
             string wit = config == null || string.IsNullOrWhiteSpace(config.witToken) ? "\n• To talk out loud: make a free app on wit.ai and paste its Client Access Token into Wit Token (Harley > Select Config)." : "";
             EditorUtility.DisplayDialog("Harley", "Done.\n\n" + string.Join("\n", log.Select(l => "• " + l)) + keys + wit +
                 "\n\nLast step: in the Project Setup Tool window that opens now, press Fix All (Android tab). Then File > Build And Run with the headset connected.", "OK");

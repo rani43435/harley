@@ -57,6 +57,13 @@ namespace Harley
         public IEnumerator Send(string system, List<ChatTurn> turns, CompanionTools tools,
                                 Action<string> onText, Action<string> onError, Action<string> onToolStart = null)
         {
+            if (config != null && config.provider == AiProvider.Gemini)
+            {
+                Busy = true;
+                try { yield return GeminiClient.Send(config, system, turns, tools, onText, onError, onToolStart); }
+                finally { Busy = false; }
+                yield break;
+            }
             if (!HasKey(onError)) yield break;
             Busy = true;
             try
@@ -119,6 +126,12 @@ namespace Harley
         /// </summary>
         public IEnumerator SearchWeb(string query, Action<string> done, string fallbackCity = "", string fallbackCountry = "")
         {
+            if (config != null && config.provider == AiProvider.Gemini)
+            {
+                string c = !string.IsNullOrWhiteSpace(config.homeCity) ? config.homeCity : fallbackCity;
+                yield return GeminiClient.Search(config, query, c, done);
+                yield break;
+            }
             if (!HasKey(e => done?.Invoke("Search failed: " + e))) yield break;
 
             string model = string.IsNullOrWhiteSpace(config.searchModel) ? config.model : config.searchModel;

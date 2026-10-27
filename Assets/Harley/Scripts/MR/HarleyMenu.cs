@@ -145,7 +145,7 @@ namespace Harley
             var cfg = brain != null ? brain.config : null;
             var voice = brain != null ? brain.voice : null;
             string s;
-            if (cfg == null || string.IsNullOrWhiteSpace(cfg.apiKey)) s = "<color=#F87171>No Claude API key in the config</color>";
+            if (cfg == null || !cfg.HasBrainKey) s = "<color=#F87171>No " + (cfg != null ? cfg.provider.ToString() : "AI") + " API key in the config</color>";
             else if (voice != null && voice.IsListening) s = "<color=#4ADE80>Listening...</color>";
             else if (voice != null && !voice.HasDictation) s = "Talk needs a free Wit token (config). Type works now.";
             else s = "Talk, or just look at Harley to talk.";
