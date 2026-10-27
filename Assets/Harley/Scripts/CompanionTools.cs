@@ -96,7 +96,8 @@ namespace Harley
                     "input_schema", MiniJson.Obj(
                         "type", "object",
                         "properties", MiniJson.Obj("place", MiniJson.Obj("type", "string",
-                            "description", "City, optionally with region or country, e.g. \"Paris\" or \"Münster, Hessen\". Empty = player's home.")),
+                            "description", "City in English (Latin letters), optionally with region or country, e.g. \"Nazareth, Israel\" or " +
+                                           "\"Münster, Hessen\". Always use the English name, even when the player speaks another language. Empty = player's home.")),
                         "required", new List<object>())));
 
             return list;
@@ -179,7 +180,7 @@ namespace Harley
                         if (hint.Length > 0 && Matches(r, hint)) { pick = r; break; }
                     }
                 }
-                if (pick == null) { done("I couldn't find a place called " + place + "."); yield break; }
+                if (pick == null) { done("No place called \"" + place + "\" was found. Try again with the English name of the city, optionally with its country."); yield break; }
                 lat = pick.Num("latitude");
                 lon = pick.Num("longitude");
                 label = pick.Str("name") + ", " + (pick.Str("admin1") ?? "") + " (" + (pick.Str("country_code") ?? "") + ")";
