@@ -66,9 +66,6 @@ namespace Harley.EditorTools
                 Progress("Meta project settings", 0.15f);
                 MetaProjectConfig(log);
 
-                Progress("Meta Project Setup Tool: fixing", 0.25f);
-                await FixAll(log);
-
                 int i = 0;
                 foreach (string path in Blocks)
                 {
@@ -86,7 +83,6 @@ namespace Harley.EditorTools
 
                 EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
                 EditorSceneManager.SaveOpenScenes();
-                await FixAll(null); // once more for anything the blocks changed
             }
             catch (Exception e)
             {
@@ -103,7 +99,8 @@ namespace Harley.EditorTools
             string keys = config == null || string.IsNullOrWhiteSpace(config.apiKey) ? "\n• Paste your Claude API key: Harley > Select Config." : "";
             string wit = config == null || string.IsNullOrWhiteSpace(config.witToken) ? "\n• To talk out loud: make a free app on wit.ai and paste its Client Access Token into Wit Token (Harley > Select Config)." : "";
             EditorUtility.DisplayDialog("Harley", "Done.\n\n" + string.Join("\n", log.Select(l => "• " + l)) + keys + wit +
-                "\n\nThen File > Build And Run with the headset connected.", "OK");
+                "\n\nLast step: in the Project Setup Tool window that opens now, press Fix All (Android tab). Then File > Build And Run with the headset connected.", "OK");
+            OpenProjectSetupTool();
         }
 
         static void Progress(string what, float p) => EditorUtility.DisplayProgressBar("Harley mixed reality setup", what, p);
@@ -166,6 +163,12 @@ namespace Harley.EditorTools
             log.Add("Meta: hands + controllers, passthrough, camera access, room scan, system keyboard.");
         }
 
+        static void OpenProjectSetupTool()
+        {
+            if (EditorApplication.ExecuteMenuItem("Meta/Tools/Project Setup Tool")) return;
+            SettingsService.OpenProjectSettings("Project/Meta XR");
+        }
+
         static async Task FixAll(List<string> log)
         {
             Type t = FindType("OVRProjectSetup");
@@ -199,7 +202,11 @@ namespace Harley.EditorTools
 
             try
             {
-                if (install.Invoke(block, new object[] { null }) is Task task) await task;
+                if (install.Invoke(block, new object[] { null }) is Task task)
+                {
+                    if (await Task.WhenAny(task, Task.Delay(60000)) != task) { log.Add($"{name}: took too long, add it in Meta > Tools > Building Blocks."); return; }
+                    await task;
+                }
                 string blockName = block.GetType().GetProperty("BlockName", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(block) as string;
                 log.Add("Added " + (blockName ?? name) + ".");
             }
