@@ -1,0 +1,695 @@
+<title>Nova Character Preview</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+  /* Layout: a stage (Nova floating in a dim "room") beside a compact control deck; stacks on phones. */
+  :root {
+    --bg: #F5F3FA;
+    --surface: #FFFFFF;
+    --fg: #1C1630;
+    --muted: #6A6382;
+    --line: #E2DCF0;
+    --accent: #7C4DEB;
+    --accent-ink: #FFFFFF;
+    --accent-soft: #EEE7FE;
+    --stage: #E9E5F3;
+    --stage-glow: rgba(139, 92, 246, 0.16);
+    --bubble: rgba(30, 16, 52, 0.86);
+    --bubble-ink: #FFFFFF;
+    --bubble-partial: #C4B5FD;
+    --shade: rgba(46, 24, 92, 0.32);
+    --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --font-body: "Figtree", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E0B15; --surface: #18141F; --fg: #ECE8F7; --muted: #9C95B5; --line: #2A2438;
+      --accent: #A78BFA; --accent-ink: #160F26; --accent-soft: #241C38;
+      --stage: #14101C; --stage-glow: rgba(139, 92, 246, 0.22);
+      --bubble: rgba(30, 16, 52, 0.9); --bubble-ink: #FFFFFF; --bubble-partial: #C4B5FD;
+      --shade: rgba(139, 92, 246, 0.30);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E0B15; --surface: #18141F; --fg: #ECE8F7; --muted: #9C95B5; --line: #2A2438;
+    --accent: #A78BFA; --accent-ink: #160F26; --accent-soft: #241C38;
+    --stage: #14101C; --stage-glow: rgba(139, 92, 246, 0.22);
+    --bubble: rgba(30, 16, 52, 0.9); --bubble-ink: #FFFFFF; --bubble-partial: #C4B5FD;
+    --shade: rgba(139, 92, 246, 0.30);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.5;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 20px 32px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; display: grid; gap: 18px; }
+
+  header { display: grid; gap: 6px; }
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: clamp(2rem, 6vw, 2.9rem);
+    letter-spacing: -0.02em;
+    line-height: 1;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .lede { margin: 0; color: var(--muted); max-width: 60ch; }
+  .specs { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 4px 0 0; padding: 0; list-style: none; font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .specs b { color: var(--fg); font-weight: 500; }
+
+  .grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 880px) { .grid { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: start; } }
+
+  .stage {
+    position: relative;
+    height: clamp(320px, 58vh, 520px);
+    border-radius: 22px;
+    background:
+      radial-gradient(60% 55% at 50% 46%, var(--stage-glow), transparent 70%),
+      var(--stage);
+    overflow: hidden;
+    touch-action: pan-y;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: pointer; }
+  .stage canvas:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; border-radius: 22px; }
+  .stage-col { display: grid; gap: 8px; min-width: 0; }
+  .hint { margin: 0 4px; font-size: 13px; color: var(--muted); }
+  .state {
+    position: absolute; top: 12px; left: 14px;
+    font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.04em;
+    color: var(--muted); pointer-events: none;
+  }
+  .state .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); margin-right: 6px; vertical-align: 1px; transition: background .2s; }
+  .state[data-mode="listening"] .dot { background: #22C55E; }
+  .state[data-mode="thinking"] .dot { background: var(--accent); }
+  .state[data-mode="speaking"] .dot { background: #F472B6; }
+
+  .bubble {
+    position: absolute; left: 50%; top: 20%;
+    transform: translate(-50%, calc(-100% - 4px));
+    max-width: min(78%, 340px);
+    padding: 8px 12px;
+    border-radius: 12px;
+    background: var(--bubble);
+    color: var(--bubble-ink);
+    font-size: 14.5px; line-height: 1.35; text-align: center;
+    opacity: 0; transition: opacity .25s ease;
+    pointer-events: none;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .bubble.show { opacity: 1; }
+  .bubble.partial { color: var(--bubble-partial); font-style: italic; }
+  .fallback { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--muted); }
+
+  .deck {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 16px;
+    display: grid;
+    gap: 18px;
+    min-width: 0;
+  }
+  .group { display: grid; gap: 8px; min-width: 0; }
+  .label { font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip, .btn, .toggle {
+    font: inherit;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--fg);
+    cursor: pointer;
+    transition: background .15s, border-color .15s, color .15s, transform .1s;
+  }
+  .chip { font-family: var(--font-mono); font-size: 12.5px; padding: 6px 11px; }
+  .chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--fg); }
+  .chip:hover, .btn:hover, .toggle:hover { border-color: var(--accent); }
+  .chip:active, .btn:active, .toggle:active { transform: scale(0.97); }
+  .chip:focus-visible, .btn:focus-visible, .toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .btn { padding: 9px 16px; font-weight: 600; font-size: 14px; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .btn.primary:disabled { opacity: .55; cursor: default; transform: none; }
+  .toggle { padding: 8px 14px; font-size: 14px; display: inline-flex; align-items: center; gap: 8px; }
+  .toggle .sw { width: 26px; height: 15px; border-radius: 999px; background: var(--line); position: relative; transition: background .15s; }
+  .toggle .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: var(--surface); transition: transform .15s; }
+  .toggle[aria-pressed="true"] .sw { background: var(--accent); }
+  .toggle[aria-pressed="true"] .sw::after { transform: translateX(11px); }
+  .note { margin: 0; font-size: 13px; color: var(--muted); }
+  .note code { font-family: var(--font-mono); font-size: 12px; color: var(--fg); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bubble, .chip, .btn, .toggle, .toggle .sw, .toggle .sw::after { transition: none; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Nova</h1>
+    <p class="lede">Your AI companion for Quest, in the same shape, colours and moves as the Unity build. Tap it, pet it, change its mood and run a pretend conversation.</p>
+    <ul class="specs" aria-label="Specs">
+      <li><b>20 cm</b> body</li>
+      <li><b>8</b> emotions</li>
+      <li><b>10</b> actions</li>
+      <li>brain <b>claude-haiku-5-5</b></li>
+    </ul>
+  </header>
+
+  <div class="grid">
+    <div class="stage-col">
+    <div class="stage" id="stage">
+      <canvas id="nova" tabindex="0" aria-label="Nova, a round white creature with purple eyes and a purple halo. Press Enter to poke it."></canvas>
+      <div class="state" id="state" data-mode="idle"><span class="dot"></span><span id="stateText">idle</span></div>
+      <div class="bubble show" id="bubble">Hi! I'm Nova. Poke me!</div>
+      <div class="fallback" id="fallback" hidden>This preview needs WebGL, which this browser has turned off.</div>
+    </div>
+    <p class="hint">Tap Nova to poke it. Stroke the top of its head to pet it. Its eyes follow your finger, the way they follow your head in the headset.</p>
+    </div>
+
+    <section class="deck" aria-label="Controls">
+      <div class="group">
+        <span class="label" id="emoLabel">Emotion</span>
+        <div class="chips" role="group" aria-labelledby="emoLabel" id="emotions"></div>
+      </div>
+
+      <div class="group">
+        <span class="label">Body</span>
+        <div class="row">
+          <button class="btn" id="actWave" type="button">Wave</button>
+          <button class="btn" id="actSpin" type="button">Spin</button>
+          <button class="btn" id="actDance" type="button">Dance</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <span class="label">Conversation</span>
+        <div class="row">
+          <button class="btn primary" id="talk" type="button">Talk to Nova</button>
+          <button class="toggle" id="tListen" type="button" aria-pressed="false"><span class="sw" aria-hidden="true"></span>Listening</button>
+          <button class="toggle" id="tThink" type="button" aria-pressed="false"><span class="sw" aria-hidden="true"></span>Thinking</button>
+        </div>
+        <p class="note">Talk runs the real loop: listen, think (the halo turns into a spinner), then answer with a mood and a move. The answers here are written examples, not live Claude replies.</p>
+      </div>
+
+      <p class="note">In the headset Nova also does <code>follow</code>, <code>wander</code>, <code>sit</code>, <code>hide</code>, <code>come_close</code> and <code>look_at_thing</code>, which move it around your real room.</p>
+    </section>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  const stage = document.getElementById("stage");
+  const canvas = document.getElementById("nova");
+  const bubble = document.getElementById("bubble");
+  const stateEl = document.getElementById("state");
+  const stateText = document.getElementById("stateText");
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---------- emotion chips ----------
+  const EMOTIONS = ["neutral", "happy", "excited", "curious", "surprised", "sad", "sleepy", "love"];
+  const emoBox = document.getElementById("emotions");
+  const chips = {};
+  EMOTIONS.forEach(function (e) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip"; b.textContent = e; b.id = "emo-" + e;
+    b.setAttribute("aria-pressed", e === "happy" ? "true" : "false");
+    b.addEventListener("click", function () { setEmotion(e); });
+    emoBox.appendChild(b); chips[e] = b;
+  });
+
+  if (typeof THREE === "undefined") { document.getElementById("fallback").hidden = false; return; }
+
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+  } catch (err) {
+    document.getElementById("fallback").hidden = false;
+    canvas.hidden = true;
+    return;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setClearColor(0x000000, 0);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 10);
+  camera.position.set(0, 0.035, 0.62);
+  camera.lookAt(0, 0.03, 0);
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xcfc4f5, 0.85));
+  const keyLight = new THREE.DirectionalLight(0xffffff, 0.7);
+  keyLight.position.set(0.35, 0.6, 0.55);
+  scene.add(keyLight);
+
+  // Same colours as the Unity materials.
+  const COL = {
+    white: new THREE.Color(0xF4F1FF),
+    purple: new THREE.Color(0x8B5CF6),
+    lavender: new THREE.Color(0xC4B5FD),
+    pink: new THREE.Color(0xF472B6),
+    sadViolet: new THREE.Color(0x6366F1),
+    cheek: new THREE.Color(0xF59ED9)
+  };
+
+  const whiteMat = new THREE.MeshStandardMaterial({ color: COL.white, roughness: 0.32, metalness: 0, emissive: COL.white.clone(), emissiveIntensity: 0.1 });
+  // Eyes and mouth: dark base + purple emission, so they read as solid glowing purple (same recipe as Unity).
+  const glowMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0x1E0B3D), roughness: 0.25, emissive: COL.purple.clone(), emissiveIntensity: 1.0 });
+  const cheekMat = new THREE.MeshStandardMaterial({ color: COL.cheek, roughness: 0.6, emissive: COL.cheek.clone(), emissiveIntensity: 0.35, transparent: true, opacity: 0.9 });
+  const haloMat = new THREE.MeshBasicMaterial({ color: COL.purple.clone(), transparent: true, opacity: 0.8 });
+
+  const sphere = new THREE.SphereGeometry(0.5, 48, 32);
+
+  // Hierarchy mirrors the Unity builder: Visual > SquashRoot > Body/Eyes/Mouth/Cheeks, hands and halo on Visual.
+  const visual = new THREE.Group();
+  visual.rotation.order = "YXZ";
+  scene.add(visual);
+  const squash = new THREE.Group();
+  visual.add(squash);
+
+  function part(mat, pos, scl, parent) {
+    const m = new THREE.Mesh(sphere, mat);
+    m.position.set(pos[0], pos[1], pos[2]);
+    m.scale.set(scl[0], scl[1], scl[2]);
+    parent.add(m);
+    return m;
+  }
+
+  const body = part(whiteMat, [0, 0, 0], [0.2, 0.2, 0.2], squash);
+  const EYE = [0.032, 0.05, 0.014];
+  const eyeL = part(glowMat, [-0.038, 0.016, 0.088], EYE, squash);
+  const eyeR = part(glowMat, [0.038, 0.016, 0.088], EYE, squash);
+  const MOUTH = [0.018, 0.006, 0.008];
+  const mouth = part(glowMat, [0, -0.027, 0.094], MOUTH, squash);
+  const cheekL = part(cheekMat, [-0.061, -0.014, 0.077], [0.024, 0.012, 0.008], squash);
+  const cheekR = part(cheekMat, [0.061, -0.014, 0.077], [0.024, 0.012, 0.008], squash);
+  const HAND_L = new THREE.Vector3(-0.128, -0.03, 0.02);
+  const HAND_R = new THREE.Vector3(0.128, -0.03, 0.02);
+  const handL = part(whiteMat, [HAND_L.x, HAND_L.y, HAND_L.z], [0.034, 0.034, 0.034], visual);
+  const handR = part(whiteMat, [HAND_R.x, HAND_R.y, HAND_R.z], [0.034, 0.034, 0.034], visual);
+
+  const haloTilt = new THREE.Group();
+  haloTilt.position.y = 0.125;
+  haloTilt.rotation.x = THREE.MathUtils.degToRad(12);
+  visual.add(haloTilt);
+  const haloSpinner = new THREE.Group();
+  haloTilt.add(haloSpinner);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.0028, 10, 96), haloMat);
+  ring.rotation.x = Math.PI / 2;
+  haloSpinner.add(ring);
+  const arc = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.0034, 10, 72, Math.PI * 1.35), haloMat);
+  arc.rotation.x = Math.PI / 2;
+  arc.visible = false;
+  haloSpinner.add(arc);
+
+  // Soft shadow (light theme) or glow (dark theme) under the body.
+  const shadowCanvas = document.createElement("canvas");
+  shadowCanvas.width = shadowCanvas.height = 128;
+  const shadowTex = new THREE.CanvasTexture(shadowCanvas);
+  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 0.28), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }));
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = -0.17;
+  scene.add(shadow);
+  function paintShadow() {
+    const c = shadowCanvas.getContext("2d");
+    const shade = getComputedStyle(document.documentElement).getPropertyValue("--shade").trim() || "rgba(46,24,92,0.32)";
+    c.clearRect(0, 0, 128, 128);
+    const g = c.createRadialGradient(64, 64, 2, 64, 64, 62);
+    g.addColorStop(0, shade);
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    c.fillStyle = g;
+    c.fillRect(0, 0, 128, 128);
+    shadowTex.needsUpdate = true;
+  }
+  paintShadow();
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paintShadow);
+  new MutationObserver(paintShadow).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+  // ---------- state ----------
+  const st = {
+    base: "happy", over: null, overUntil: 0,
+    listening: false, thinking: false, speaking: false,
+    talk: 0, squash: 0, squashVel: 0,
+    spinT: -1, danceT: -1, waveT: -1,
+    blinkT: -1, nextBlink: 1.8, haloSpin: 0,
+    look: new THREE.Vector2(0, 0), lookTarget: new THREE.Vector2(0, 0), nextGlance: 2,
+    pointerActive: false, eyeShift: new THREE.Vector2(0, 0),
+    glow: COL.purple.clone(), yaw: 0,
+    speakText: "", speakStart: 0, speakDur: 0, bubbleHideAt: 3.2, dots: false
+  };
+  let t = 0;
+
+  function emotion() { return t < st.overUntil && st.over ? st.over : st.base; }
+
+  function setEmotion(e) {
+    st.base = e; st.over = null; st.overUntil = 0;
+    EMOTIONS.forEach(function (k) { chips[k].setAttribute("aria-pressed", k === e ? "true" : "false"); });
+  }
+  function flashEmotion(e, secs) { st.over = e; st.overUntil = t + secs; }
+
+  function setMode() {
+    const mode = st.listening ? "listening" : st.thinking ? "thinking" : st.speaking ? "speaking" : "idle";
+    stateEl.dataset.mode = mode;
+    stateText.textContent = mode;
+  }
+
+  function showBubble(text, partial, holdSecs) {
+    bubble.textContent = text;
+    bubble.classList.toggle("partial", !!partial);
+    bubble.classList.add("show");
+    st.bubbleHideAt = t + (holdSecs || 2.5);
+    st.dots = false;
+  }
+
+  function say(text) {
+    st.speaking = true;
+    st.speakText = text;
+    st.speakStart = t;
+    const words = text.split(/\s+/).filter(Boolean).length;
+    st.speakDur = Math.min(15, Math.max(1.2, words / 2.6 + 0.6));
+    showBubble("", false, st.speakDur + 2.5);
+    setMode();
+  }
+
+  function setListening(on) {
+    st.listening = on;
+    document.getElementById("tListen").setAttribute("aria-pressed", on ? "true" : "false");
+    if (on) { showBubble(".", true, 999); st.dots = true; }
+    else if (st.dots) { st.dots = false; st.bubbleHideAt = t + 0.4; }
+    setMode();
+  }
+
+  function setThinking(on) {
+    st.thinking = on;
+    document.getElementById("tThink").setAttribute("aria-pressed", on ? "true" : "false");
+    setMode();
+  }
+
+  function poke() {
+    st.squashVel += 9;
+    flashEmotion("surprised", 1.2);
+    if (!st.speaking && Math.random() < 0.6) {
+      const lines = ["Hey! That tickles.", "Boop!", "Again? Okay, one more.", "Hehe, stop it!"];
+      say(lines[Math.floor(Math.random() * lines.length)]);
+    }
+  }
+
+  // ---------- controls ----------
+  document.getElementById("actWave").addEventListener("click", function () { st.waveT = 0; });
+  document.getElementById("actSpin").addEventListener("click", function () { st.spinT = 0; });
+  document.getElementById("actDance").addEventListener("click", function () { st.danceT = 0; });
+  document.getElementById("tListen").addEventListener("click", function () { setListening(!st.listening); });
+  document.getElementById("tThink").addEventListener("click", function () { setThinking(!st.thinking); });
+
+  const SCRIPT = [
+    { you: "Hey Nova, can you see me?", say: "Loud and clear! Your room looks cozy from up here.", emotion: "happy", action: "wave" },
+    { you: "What do you think of this?", say: "Ooh, is that a bass guitar? Play me something!", emotion: "excited", action: "spin" },
+    { you: "I'm a bit tired today.", say: "Then let's take it slow. I'll stay right here with you.", emotion: "love", action: null },
+    { you: "Dance for me!", say: "Only if you dance too. Deal?", emotion: "excited", action: "dance" },
+    { you: "What's that on the shelf?", say: "Hmm, a little plant? It looks thirsty. When did you last water it?", emotion: "curious", action: null }
+  ];
+  let scriptIdx = 0;
+  const talkBtn = document.getElementById("talk");
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  talkBtn.addEventListener("click", async function () {
+    talkBtn.disabled = true;
+    const line = SCRIPT[scriptIdx++ % SCRIPT.length];
+    st.speaking = false;
+    setThinking(false);
+    setListening(true);
+    await wait(1300);
+    st.dots = false;
+    showBubble(line.you, true, 999);
+    await wait(1000);
+    setListening(false);
+    st.bubbleHideAt = t + 1.2;
+    setThinking(true);
+    await wait(1100);
+    setThinking(false);
+    setEmotion(line.emotion);
+    if (line.action === "wave") st.waveT = 0;
+    if (line.action === "spin") st.spinT = 0;
+    if (line.action === "dance") st.danceT = 0;
+    say(line.say);
+    talkBtn.disabled = false;
+  });
+
+  // ---------- pointer: look, poke, pet ----------
+  const raycaster = new THREE.Raycaster();
+  const ndc = new THREE.Vector2();
+  let petting = false, petDist = 0, lastX = 0;
+
+  function toNdc(ev) {
+    const r = canvas.getBoundingClientRect();
+    ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  }
+
+  canvas.addEventListener("pointermove", function (ev) {
+    toNdc(ev);
+    st.pointerActive = true;
+    st.lookTarget.set(THREE.MathUtils.clamp(ndc.x * 1.4, -1, 1), THREE.MathUtils.clamp(ndc.y * 1.4, -1, 1));
+    if (petting) {
+      petDist += Math.abs(ev.clientX - lastX);
+      lastX = ev.clientX;
+      if (petDist > 140) {
+        petDist = 0;
+        flashEmotion("love", 3);
+        if (!st.speaking) say(Math.random() < 0.5 ? "Mmm, more please." : "That's nice...");
+      }
+    }
+  });
+  canvas.addEventListener("pointerleave", function () { st.pointerActive = false; petting = false; });
+  canvas.addEventListener("pointerup", function () { petting = false; });
+  canvas.addEventListener("pointercancel", function () { petting = false; });
+  canvas.addEventListener("pointerdown", function (ev) {
+    toNdc(ev);
+    raycaster.setFromCamera(ndc, camera);
+    const hit = raycaster.intersectObject(body, false)[0];
+    if (!hit) return;
+    const local = body.worldToLocal(hit.point.clone()); // radius 0.5 in body space
+    if (local.y > 0.28) { petting = true; petDist = 0; lastX = ev.clientX; }
+    else poke();
+  });
+  canvas.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); poke(); }
+  });
+
+  // ---------- sizing ----------
+  function resize() {
+    const w = stage.clientWidth, h = stage.clientHeight;
+    if (!w || !h) return;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    // Keep Nova framed on narrow screens.
+    camera.position.z = camera.aspect < 0.85 ? 0.62 / Math.max(0.62, camera.aspect / 0.85) : 0.62;
+    camera.updateProjectionMatrix();
+  }
+  if ("ResizeObserver" in window) new ResizeObserver(resize).observe(stage);
+  window.addEventListener("resize", resize);
+  resize();
+
+  // ---------- animation (ported from CompanionVisual.cs) ----------
+  const clock = new THREE.Clock();
+  const tmp = new THREE.Vector3();
+  const targetGlow = new THREE.Color();
+
+  function easeInOut(x) { return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; }
+  function damp(rate, dt) { return 1 - Math.exp(-rate * dt); }
+
+  function frame() {
+    const dt = Math.min(clock.getDelta(), 0.05);
+    t += dt;
+    const emo = emotion();
+
+    // talking amount (syllable rhythm, same as the no-TTS path in CompanionVoice)
+    if (st.speaking && t - st.speakStart >= st.speakDur) { st.speaking = false; st.bubbleHideAt = t + 2.5; setMode(); }
+    let talkTarget = 0;
+    if (st.speaking) {
+      const syl = 0.5 + 0.5 * Math.sin(t * 17);
+      const wob = 0.5 + 0.5 * Math.sin(t * 5.3 + Math.sin(t * 2.1) * 2);
+      talkTarget = syl * (0.45 + 0.55 * wob);
+    }
+    st.talk += (talkTarget - st.talk) * damp(25, dt);
+
+    // bob
+    const bobSpeed = emo === "excited" ? 1.4 : (emo === "sad" || emo === "sleepy") ? 0.35 : 0.6;
+    const bobAmp = reduceMotion ? 0.004 : 0.012;
+    let y = Math.sin(t * Math.PI * 2 * bobSpeed) * bobAmp;
+
+    // look: pointer, or idle glances
+    if (!st.pointerActive && !reduceMotion && t > st.nextGlance) {
+      st.nextGlance = t + 2.5 + Math.random() * 3.5;
+      st.lookTarget.set(Math.random() < 0.5 ? 0 : (Math.random() - 0.5) * 1.2, (Math.random() - 0.5) * 0.6);
+    }
+    st.look.lerp(st.lookTarget, damp(6, dt));
+
+    // turn toward you (the movement script yaws toward the player's head)
+    let yaw = st.look.x * 0.3;
+    let pitch = -st.look.y * 0.12;
+    let roll = 0;
+    if (emo === "curious") roll += THREE.MathUtils.degToRad(12);
+    if (st.thinking) pitch -= THREE.MathUtils.degToRad(6);
+
+    if (st.spinT >= 0) {
+      st.spinT += dt / 0.8;
+      const p = Math.min(1, st.spinT);
+      yaw += easeInOut(p) * Math.PI * 2;
+      y += Math.sin(p * Math.PI) * 0.05;
+      if (st.spinT >= 1) st.spinT = -1;
+    }
+    if (st.danceT >= 0) {
+      st.danceT += dt;
+      yaw += THREE.MathUtils.degToRad(Math.sin(st.danceT * Math.PI * 2 * 1.2) * 28);
+      y += Math.abs(Math.sin(st.danceT * Math.PI * 2 * 2)) * 0.035;
+      roll += THREE.MathUtils.degToRad(Math.sin(st.danceT * Math.PI * 2 * 1.2) * 10);
+      if (st.danceT > 3.2) st.danceT = -1;
+    }
+    visual.position.y = y;
+    visual.rotation.set(pitch, yaw, roll);
+
+    // squash & stretch spring
+    const k = 120, d = 9;
+    const sqTarget = st.talk * 0.03;
+    st.squashVel += (-(st.squash - sqTarget) * k - st.squashVel * d) * dt;
+    st.squash += st.squashVel * dt;
+    const s = THREE.MathUtils.clamp(st.squash, -0.35, 0.35);
+    squash.scale.set(1 + s * 0.5, 1 - s, 1 + s * 0.5);
+
+    // eyes
+    let shapeL = [1, 1], shapeR = [1, 1], lift = 0;
+    switch (emo) {
+      case "happy": shapeL = shapeR = [1.05, 0.45]; lift = 0.003; break;
+      case "excited": shapeL = shapeR = [1.15, 1.15]; break;
+      case "curious": shapeL = [1.15, 1.15]; shapeR = [0.9, 0.8]; break;
+      case "surprised": shapeL = shapeR = [1.3, 1.3]; break;
+      case "sad": shapeL = shapeR = [0.9, 0.7]; lift = -0.005; break;
+      case "sleepy": shapeL = shapeR = [1.05, 0.22]; lift = -0.004; break;
+      case "love": shapeL = shapeR = [1.1, 0.55]; lift = 0.002; break;
+    }
+    if (st.blinkT < 0 && t >= st.nextBlink && emo !== "sleepy") st.blinkT = 0;
+    let blink = 1;
+    if (st.blinkT >= 0) {
+      st.blinkT += dt / 0.14;
+      blink = 1 - Math.sin(Math.min(1, st.blinkT) * Math.PI) * 0.92;
+      if (st.blinkT >= 1) {
+        st.blinkT = -1;
+        st.nextBlink = t + 2 + Math.random() * 3.5;
+        if (Math.random() < 0.15) st.nextBlink = t + 0.18;
+      }
+    }
+    let lx = st.look.x * 0.008, ly = st.look.y * 0.006;
+    if (st.thinking) { lx = Math.sin(t * 1.3) * 0.006; ly = 0.007; }
+    const ef = damp(10, dt);
+    st.eyeShift.x += (lx - st.eyeShift.x) * ef;
+    st.eyeShift.y += (ly + lift - st.eyeShift.y) * ef;
+    eyeL.position.set(-0.038 + st.eyeShift.x, 0.016 + st.eyeShift.y, 0.088);
+    eyeR.position.set(0.038 + st.eyeShift.x, 0.016 + st.eyeShift.y, 0.088);
+    const sf = st.blinkT >= 0 ? 1 : ef;
+    eyeL.scale.lerp(tmp.set(EYE[0] * shapeL[0], EYE[1] * shapeL[1] * blink, EYE[2]), sf);
+    eyeR.scale.lerp(tmp.set(EYE[0] * shapeR[0], EYE[1] * shapeR[1] * blink, EYE[2]), sf);
+
+    // mouth
+    let open = st.talk;
+    if (emo === "surprised") open = Math.max(open, 0.7);
+    const wide = (emo === "happy" || emo === "love" || emo === "excited") ? 1.25 : emo === "sad" ? 0.75 : 1;
+    mouth.scale.set(MOUTH[0] * wide, MOUTH[1] * (1 + open * 2.2), MOUTH[2]);
+    mouth.position.y = -0.027 + (emo === "sad" ? -0.004 : 0);
+
+    // cheeks
+    const blush = emo === "love" || emo === "happy" || emo === "excited";
+    cheekL.visible = cheekR.visible = blush;
+
+    // hands
+    const hl = HAND_L.clone().add(tmp.set(0, Math.sin(t * 2.1) * 0.006, 0));
+    const hr = HAND_R.clone().add(tmp.set(0, Math.sin(t * 2.1 + 1.3) * 0.006, 0));
+    if (st.talk > 0.05) {
+      hl.add(tmp.set(0, Math.sin(t * 5) * 0.008 * st.talk, 0.01 * st.talk));
+      hr.add(tmp.set(0, Math.sin(t * 5 + 2) * 0.008 * st.talk, 0.01 * st.talk));
+    }
+    if (st.waveT >= 0) {
+      st.waveT += dt;
+      const up = Math.min(1, st.waveT * 5) * Math.min(1, Math.max(0, (1.8 - st.waveT) * 5));
+      const waveTo = HAND_R.clone().add(tmp.set(0.03 + Math.sin(st.waveT * 16) * 0.022, 0.11, 0.02));
+      hr.lerp(waveTo, up);
+      if (st.waveT > 1.8) st.waveT = -1;
+    }
+    if (st.danceT >= 0) {
+      const a = Math.sin(st.danceT * Math.PI * 2 * 2);
+      hl.y += 0.05 + a * 0.03;
+      hr.y += 0.05 - a * 0.03;
+    }
+    if (st.listening) hl.lerp(HAND_L.clone().add(tmp.set(-0.005, 0.06, -0.01)), 0.6);
+    const hf = damp(14, dt);
+    handL.position.lerp(hl, hf);
+    handR.position.lerp(hr, hf);
+
+    // glow colour & intensity
+    targetGlow.copy(emo === "love" ? COL.pink : emo === "sad" ? COL.sadViolet : emo === "excited" ? COL.lavender : COL.purple);
+    st.glow.lerp(targetGlow, damp(6, dt));
+    let intensity = (emo === "sad" || emo === "sleepy") ? 0.6 : emo === "excited" ? 1.2 : 1.0;
+    if (st.listening) intensity *= 1.1 + Math.sin(t * 6) * 0.1;
+    glowMat.color.copy(st.glow).multiplyScalar(0.2);
+    glowMat.emissive.copy(st.glow);
+    glowMat.emissiveIntensity = intensity;
+
+    // halo: ring when idle/listening, spinning arc while thinking
+    const spinSpeed = st.thinking ? 360 : st.listening ? 120 : (reduceMotion ? 0 : 30);
+    st.haloSpin += THREE.MathUtils.degToRad(spinSpeed) * dt;
+    haloSpinner.rotation.y = st.haloSpin;
+    const rScale = (st.listening ? 1.2 : 1) * (1 + Math.sin(t * 2) * 0.03 + st.talk * 0.08);
+    haloSpinner.scale.setScalar(rScale);
+    ring.visible = !st.thinking;
+    arc.visible = st.thinking;
+    haloMat.color.copy(st.glow);
+    haloMat.opacity = st.thinking ? 0.95 : st.listening ? 1 : 0.75;
+
+    // shadow breathes with the bob
+    const sh = 1 - y * 4;
+    shadow.scale.set(sh, sh, 1);
+
+    // speech bubble: typewriter + listening dots + fade
+    if (st.speaking) {
+      const p = Math.min(1, (t - st.speakStart) / Math.max(0.1, st.speakDur * 0.9));
+      const n = Math.ceil(p * st.speakText.length);
+      if (bubble.textContent.length !== n) bubble.textContent = st.speakText.slice(0, n);
+    }
+    if (st.dots) {
+      const dots = ".".repeat(1 + Math.floor(t * 3) % 3);
+      if (bubble.textContent !== dots) bubble.textContent = dots;
+    }
+    const showB = st.speaking || st.listening || t < st.bubbleHideAt;
+    bubble.classList.toggle("show", showB && bubble.textContent.length > 0);
+
+    // place the bubble above Nova's head
+    tmp.set(0, 0.165 + y, 0).project(camera);
+    bubble.style.left = ((tmp.x * 0.5 + 0.5) * 100).toFixed(2) + "%";
+    bubble.style.top = ((-tmp.y * 0.5 + 0.5) * 100).toFixed(2) + "%";
+
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+
+  setMode();
+  requestAnimationFrame(frame);
+})();
+</script>
