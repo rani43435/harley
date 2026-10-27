@@ -18,13 +18,13 @@ namespace Harley
     /// Fingertips and controller anchors are found automatically by name
     /// (OVRSkeleton, Interaction SDK, XR Hands, OVRCameraRig). You can also drag them in.
     /// </summary>
-    public class CompanionInteraction : MonoBehaviour
+    public class CompanionInteraction : CompanionInput
     {
         [Tooltip("Centre of Harley's body.")]
         public Transform body;
         public float bodyRadius = 0.1f;
         public Transform head;
-        public CompanionMovement movement;
+        public CompanionMotion movement;
 
         [Header("Hands")]
         public Transform leftIndexTip;
@@ -50,21 +50,7 @@ namespace Harley
         public float maxTalkDistance = 3f;
         public bool controllerButtonToTalk = true;
 
-        public event Action Poked;
-        public event Action Petted;
-        public event Action Waved;
-        /// <summary>Player wants to talk. true = pressed the button, false = looked at Harley.</summary>
-        public event Action<bool> TalkRequested;
-        public event Action Grabbed;
-        /// <summary>Let go. Argument: hand velocity (a fast one is a throw).</summary>
-        public event Action<Vector3> Released;
-
-        /// <summary>True while the player is looking straight at Harley.</summary>
-        public bool IsPlayerLooking { get; private set; }
         public bool IsHolding => _holder != null;
-
-        /// <summary>Seconds since the player last did anything with Harley.</summary>
-        public float IdleSeconds => Time.time - _lastActivity;
 
         class Tip
         {
@@ -87,19 +73,17 @@ namespace Harley
 
         readonly Tip _l = new Tip(), _r = new Tip();
         Holder _holder;
-        float _nextSearch, _lookTimer, _lastActivity;
+        float _nextSearch, _lookTimer;
         bool _lookArmed = true;
         float _pokeCooldown, _petCooldown, _waveCooldown, _talkCooldown;
         bool _btnWasDown, _gripLWas, _gripRWas;
 
-        void Start()
+        protected override void Start()
         {
+            base.Start();
             if (head == null && Camera.main != null) head = Camera.main.transform;
             if (body == null) body = transform;
-            _lastActivity = Time.time;
         }
-
-        public void MarkActivity() => _lastActivity = Time.time;
 
         void Update()
         {
@@ -172,8 +156,7 @@ namespace Harley
                 {
                     _petCooldown = Time.time + 4f;
                     tip.petTime = 0f;
-                    MarkActivity();
-                    Petted?.Invoke();
+                    RaisePetted();
                 }
             }
             else tip.petTime = Mathf.Max(0f, tip.petTime - Time.deltaTime * 0.5f);
@@ -183,8 +166,7 @@ namespace Harley
             if (inside && !tip.inside && !onTop && !tip.pinching && Time.time > _pokeCooldown)
             {
                 _pokeCooldown = Time.time + 0.8f;
-                MarkActivity();
-                Poked?.Invoke();
+                RaisePoked();
             }
             tip.inside = inside;
 
@@ -202,8 +184,7 @@ namespace Harley
                 {
                     _waveCooldown = Time.time + 5f;
                     tip.reversals.Clear();
-                    MarkActivity();
-                    Waved?.Invoke();
+                    RaiseWaved();
                 }
             }
             if (!raised) { tip.lastVx = 0f; tip.reversals.Clear(); }
@@ -242,8 +223,7 @@ namespace Harley
             _holder = new Holder { point = point, stillHolding = stillHolding };
             _holder.offset = Vector3.ClampMagnitude(body.position - point(), bodyRadius * 0.8f);
             movement?.BeginHold();
-            MarkActivity();
-            Grabbed?.Invoke();
+            RaiseGrabbed();
         }
 
         void UpdateHolding()
@@ -273,8 +253,7 @@ namespace Harley
             }
             _holder = null;
             movement?.Release(vel);
-            MarkActivity();
-            Released?.Invoke(vel);
+            RaiseReleased(vel);
         }
 
         // ---------- finding hand bones ----------
@@ -331,8 +310,7 @@ namespace Harley
                 {
                     _lookArmed = false;
                     _talkCooldown = Time.time + 3f;
-                    MarkActivity();
-                    TalkRequested?.Invoke(false);
+                    RaiseTalk(false);
                 }
             }
             else
@@ -350,8 +328,7 @@ namespace Harley
             if (right.isValid) right.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primaryButton, out down);
             if (down && !_btnWasDown)
             {
-                MarkActivity();
-                TalkRequested?.Invoke(true);
+                RaiseTalk(true);
             }
             _btnWasDown = down;
         }

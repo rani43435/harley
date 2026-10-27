@@ -1,3 +1,4 @@
+using System.IO;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -7,9 +8,9 @@ using TMPro;
 namespace Harley.EditorTools
 {
     /// <summary>
-    /// One click: builds Harley in the open scene, creates its materials and
-    /// config, and wires every reference.
-    /// Menu: Harley > Create Harley In Scene
+    /// One click builds Harley in the open scene, with materials, config and every reference wired.
+    ///  Harley > Create Window App Scene      normal app window next to your other apps, sees your screen
+    ///  Harley > Create Mixed Reality Harley  flies around your room (needs the Meta XR / MRUK setup)
     /// </summary>
     public static class CompanionBuilder
     {
@@ -17,14 +18,164 @@ namespace Harley.EditorTools
         const string MatDir = RootDir + "/Materials";
         const string ConfigPath = RootDir + "/CompanionConfig.asset";
 
-        static readonly Color White = new Color(0.957f, 0.945f, 1f);    // #F4F1FF
+        static readonly Color White = new Color(0.957f, 0.945f, 1f);     // #F4F1FF
         static readonly Color Purple = new Color(0.545f, 0.361f, 0.965f); // #8B5CF6
         static readonly Color Lavender = new Color(0.769f, 0.710f, 0.992f); // #C4B5FD
         static readonly Color Cheek = new Color(0.96f, 0.62f, 0.85f);
         static readonly Color Bubble = new Color(0.12f, 0.06f, 0.2f, 0.82f);
+        static readonly Color WindowBackground = new Color(0.078f, 0.063f, 0.110f); // #14101C
 
-        [MenuItem("Harley/Create Harley In Scene", false, 0)]
-        public static void Create()
+        /// <summary>Everything the shared body builder makes.</summary>
+        class Parts
+        {
+            public GameObject root, body;
+            public CompanionVisual visual;
+            public CompanionSounds sounds;
+            public TextMeshPro subtitle;
+            public Renderer subtitleBg;
+        }
+
+        // ---------- window app ----------
+
+        [MenuItem("Harley/Create Window App Scene", false, 0)]
+        public static void CreateWindowApp()
+        {
+            if (FindByTypeName("OVRCameraRig") != null || FindByTypeName("OVRManager") != null)
+            {
+                if (!EditorUtility.DisplayDialog("Harley", "This scene has a VR camera rig. The window app needs a normal (non-VR) project and scene. Continue anyway?", "Continue", "Cancel"))
+                    return;
+            }
+
+            CompanionConfig config = GetOrCreateConfig();
+
+            // Camera: looks at Harley from the front, dark window background.
+            Camera cam = Camera.main;
+            if (cam == null)
+            {
+                var camGO = new GameObject("Main Camera", typeof(Camera), typeof(AudioListener));
+                camGO.tag = "MainCamera";
+                Undo.RegisterCreatedObjectUndo(camGO, "Create Camera");
+                cam = camGO.GetComponent<Camera>();
+            }
+            cam.transform.position = new Vector3(0f, 0.035f, 0.62f);
+            cam.transform.rotation = Quaternion.LookRotation(new Vector3(0f, 0.03f, 0f) - cam.transform.position, Vector3.up);
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = WindowBackground;
+            cam.fieldOfView = 35f;
+            cam.nearClipPlane = 0.01f;
+            cam.farClipPlane = 20f;
+            if (cam.GetComponent<AudioListener>() == null) cam.gameObject.AddComponent<AudioListener>();
+
+            Parts p = BuildBody(Vector3.zero);
+            GameObject root = p.root;
+
+            var claude = root.AddComponent<ClaudeClient>();
+            var eyes = root.AddComponent<ScreenEyes>();
+            eyes.maxSize = 1024; eyes.jpegQuality = 80;
+            var memory = root.AddComponent<CompanionMemory>();
+            var tools = root.AddComponent<CompanionTools>();
+            var motion = root.AddComponent<PanelMotion>();
+            var input = root.AddComponent<PanelInput>();
+            var voice = root.AddComponent<CompanionVoice>();
+            var brain = root.AddComponent<CompanionBrain>();
+            var controls = root.AddComponent<PanelControls>();
+
+            motion.cam = cam;
+            motion.head = cam.transform;
+            motion.bodyRadius = 0.1f;
+            input.cam = cam;
+            input.body = p.body.transform;
+            input.bodyRadius = 0.1f;
+            input.motion = motion;
+            voice.head = cam.transform;
+
+            WireCommon(p, config, claude, eyes, memory, tools, motion, input, voice, brain, null);
+            brain.mode = CompanionMode.Window;
+            controls.brain = brain;
+            controls.voice = voice;
+            controls.input = input;
+            controls.screen = eyes;
+
+            EnsureLight();
+
+            // Turns on the window-app manifest changes (screen sharing service, window size) for Android builds.
+            if (!File.Exists(HarleyMarker))
+            {
+                File.WriteAllText(HarleyMarker, "Harley window app build. Delete this file to build the mixed reality version without screen-sharing entries.\n");
+                AssetDatabase.ImportAsset(HarleyMarker);
+            }
+
+            Finish(root);
+            EditorUtility.DisplayDialog("Harley",
+                "Harley's window app scene is ready.\n\n" +
+                KeyNote(config) + "\n" +
+                "• Build for Android with XR turned OFF (Project Settings > XR Plug-in Management > Android), so Quest opens Harley as a normal window.\n" +
+                "• The first time, Quest asks to allow screen capture: tap Start.\n" +
+                VoiceNote(), "OK");
+        }
+
+        // ---------- mixed reality ----------
+
+        [MenuItem("Harley/Create Mixed Reality Harley", false, 1)]
+        public static void CreateMixedReality()
+        {
+            CompanionConfig config = GetOrCreateConfig();
+            Camera cam = Camera.main;
+            Vector3 pos = cam != null
+                ? cam.transform.position + Flat(cam.transform.forward) * 0.9f + Vector3.down * 0.2f
+                : new Vector3(0f, 1.3f, 0.9f);
+
+            Parts p = BuildBody(pos);
+            GameObject root = p.root;
+
+            var claude = root.AddComponent<ClaudeClient>();
+            var eyes = root.AddComponent<PassthroughEyes>();
+            eyes.maxSize = 512; eyes.jpegQuality = 70;
+            var room = root.AddComponent<CompanionRoom>();
+            var memory = root.AddComponent<CompanionMemory>();
+            var tools = root.AddComponent<CompanionTools>();
+            var movement = root.AddComponent<CompanionMovement>();
+            var voice = root.AddComponent<CompanionVoice>();
+            var interaction = root.AddComponent<CompanionInteraction>();
+            var brain = root.AddComponent<CompanionBrain>();
+
+            interaction.body = p.body.transform;
+            interaction.bodyRadius = 0.1f;
+            interaction.movement = movement;
+            movement.bodyRadius = 0.1f;
+            movement.room = room;
+
+            WireCommon(p, config, claude, eyes, memory, tools, movement, interaction, voice, brain, room);
+            brain.mode = CompanionMode.MixedReality;
+            eyes.passthroughCameraAccess = FindByTypeName("PassthroughCameraAccess");
+
+            EnsureLight();
+            Finish(root);
+
+            string camNote = eyes.passthroughCameraAccess != null
+                ? "• Passthrough camera connected."
+                : "• No Passthrough Camera Access yet: add the building block, then drag it into PassthroughEyes.";
+            string roomNote = FindByTypeName("MRUK") != null
+                ? "• Room scan (MRUK) found: Harley will know your furniture."
+                : "• No MRUK in the scene: add the MR Utility Kit block so Harley knows your room.";
+            EditorUtility.DisplayDialog("Harley", "Harley is in your room.\n\n" + KeyNote(config) + "\n" + camNote + "\n" + roomNote + "\n" + VoiceNote(), "OK");
+        }
+
+        [MenuItem("Harley/Select Config (API key, city)", false, 20)]
+        public static void SelectConfig()
+        {
+            Selection.activeObject = GetOrCreateConfig();
+            EditorGUIUtility.PingObject(Selection.activeObject);
+        }
+
+        [MenuItem("Harley/Open Memory Folder", false, 40)]
+        public static void OpenMemoryFolder() => EditorUtility.RevealInFinder(Application.persistentDataPath);
+
+        const string HarleyMarker = "Assets/Harley/Editor/WindowAppBuild.txt";
+
+        // ---------- shared ----------
+
+        static Parts BuildBody(Vector3 position)
         {
             EnsureFolder(RootDir);
             EnsureFolder(MatDir);
@@ -36,35 +187,21 @@ namespace Harley.EditorTools
             Material glow = SpriteMaterial("Harley_Glow", Color.white, null);
             Material bubble = SpriteMaterial("Harley_Bubble", Bubble, null);
             Material sparkle = SpriteMaterial("Harley_Sparkle", Color.white, SparkleTexture());
-            CompanionConfig config = GetOrCreateConfig();
 
-            // ---- root + brain parts ----
-            var root = new GameObject("Harley");
-            Undo.RegisterCreatedObjectUndo(root, "Create Harley");
-            Camera cam = Camera.main;
-            root.transform.position = cam != null
-                ? cam.transform.position + Flat(cam.transform.forward) * 0.9f + Vector3.down * 0.2f
-                : new Vector3(0f, 1.3f, 0.9f);
+            var p = new Parts();
+            p.root = new GameObject("Harley");
+            Undo.RegisterCreatedObjectUndo(p.root, "Create Harley");
+            p.root.transform.position = position;
 
-            var claude = root.AddComponent<ClaudeClient>();
-            var eyes = root.AddComponent<CompanionEyes>();
-            var room = root.AddComponent<CompanionRoom>();
-            var memory = root.AddComponent<CompanionMemory>();
-            var movement = root.AddComponent<CompanionMovement>();
-            var voice = root.AddComponent<CompanionVoice>();
-            var interaction = root.AddComponent<CompanionInteraction>();
-            var brain = root.AddComponent<CompanionBrain>();
-
-            // ---- body ----
             var visualGO = new GameObject("Visual");
-            visualGO.transform.SetParent(root.transform, false);
-            var visual = visualGO.AddComponent<CompanionVisual>();
+            visualGO.transform.SetParent(p.root.transform, false);
+            p.visual = visualGO.AddComponent<CompanionVisual>();
 
             var squash = new GameObject("SquashRoot").transform;
             squash.SetParent(visualGO.transform, false);
 
-            var body = Prim("Body", squash, Vector3.zero, Vector3.one * 0.2f, white);
-            var sounds = body.AddComponent<CompanionSounds>(); // sounds come from the body
+            p.body = Prim("Body", squash, Vector3.zero, Vector3.one * 0.2f, white);
+            p.sounds = p.body.AddComponent<CompanionSounds>(); // sounds come from the body
             var eyeL = Prim("EyeL", squash, new Vector3(-0.038f, 0.016f, 0.088f), new Vector3(0.032f, 0.05f, 0.014f), purple);
             var eyeR = Prim("EyeR", squash, new Vector3(0.038f, 0.016f, 0.088f), new Vector3(0.032f, 0.05f, 0.014f), purple);
             var mouth = Prim("Mouth", squash, new Vector3(0f, -0.027f, 0.094f), new Vector3(0.018f, 0.006f, 0.008f), purple);
@@ -73,10 +210,10 @@ namespace Harley.EditorTools
             var handL = Prim("HandL", visualGO.transform, new Vector3(-0.128f, -0.03f, 0.02f), Vector3.one * 0.034f, white);
             var handR = Prim("HandR", visualGO.transform, new Vector3(0.128f, -0.03f, 0.02f), Vector3.one * 0.034f, white);
 
-            // ---- halo ----
+            // halo
             var haloGO = new GameObject("Halo");
             haloGO.transform.SetParent(visualGO.transform, false);
-            haloGO.transform.localPosition = new Vector3(0f, visual.haloHeight, 0f);
+            haloGO.transform.localPosition = new Vector3(0f, p.visual.haloHeight, 0f);
             var halo = haloGO.AddComponent<LineRenderer>();
             halo.sharedMaterial = glow;
             halo.widthMultiplier = 0.007f;
@@ -91,10 +228,10 @@ namespace Harley.EditorTools
             for (int i = 0; i < segs; i++)
             {
                 float a = i / (float)segs * Mathf.PI * 2f;
-                halo.SetPosition(i, new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * visual.haloRadius);
+                halo.SetPosition(i, new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * p.visual.haloRadius);
             }
 
-            // ---- trail ----
+            // trail
             var trailGO = new GameObject("Trail");
             trailGO.transform.SetParent(visualGO.transform, false);
             trailGO.transform.localPosition = new Vector3(0f, -0.06f, 0f);
@@ -111,108 +248,92 @@ namespace Harley.EditorTools
             trail.colorGradient = g;
             trail.emitting = false;
 
-            // ---- sparkles (on the root, so they don't shrink with the pop-in) ----
-            var sparkles = BuildSparkles(root.transform, sparkle);
+            // sparkles (on the root, so they don't shrink with the pop-in)
+            var sparkles = BuildSparkles(p.root.transform, sparkle);
 
-            // ---- subtitle bubble ----
+            // subtitle bubble
             var subGO = new GameObject("Subtitle");
-            subGO.transform.SetParent(root.transform, false);
+            subGO.transform.SetParent(p.root.transform, false);
             subGO.transform.localPosition = new Vector3(0f, 0.19f, 0f);
-            var tmp = subGO.AddComponent<TextMeshPro>();
-            tmp.text = "";
-            tmp.fontSize = 0.22f;
-            tmp.alignment = TextAlignmentOptions.Bottom;
+            p.subtitle = subGO.AddComponent<TextMeshPro>();
+            p.subtitle.text = "";
+            p.subtitle.fontSize = 0.22f;
+            p.subtitle.alignment = TextAlignmentOptions.Bottom;
 #pragma warning disable 0618
-            tmp.enableWordWrapping = true;
+            p.subtitle.enableWordWrapping = true;
 #pragma warning restore 0618
-            tmp.rectTransform.pivot = new Vector2(0.5f, 0f);
-            tmp.rectTransform.sizeDelta = new Vector2(0.45f, 0.25f);
-            tmp.color = Color.white;
+            p.subtitle.rectTransform.pivot = new Vector2(0.5f, 0f);
+            p.subtitle.rectTransform.sizeDelta = new Vector2(0.45f, 0.25f);
+            p.subtitle.color = Color.white;
             var tmpRenderer = subGO.GetComponent<MeshRenderer>();
             if (tmpRenderer) tmpRenderer.sortingOrder = 1;
 
-            var bg = Prim("SubtitleBg", root.transform, new Vector3(0f, 0.22f, 0f), new Vector3(0.3f, 0.06f, 1f), bubble, PrimitiveType.Quad);
+            var bg = Prim("SubtitleBg", p.root.transform, new Vector3(0f, 0.22f, 0f), new Vector3(0.3f, 0.06f, 1f), bubble, PrimitiveType.Quad);
             bg.GetComponent<MeshRenderer>().sortingOrder = 0;
+            p.subtitleBg = bg.GetComponent<Renderer>();
 
-            // ---- wire everything ----
-            visual.squashRoot = squash;
-            visual.eyeL = eyeL.transform;
-            visual.eyeR = eyeR.transform;
-            visual.mouth = mouth.transform;
-            visual.cheekL = cheekL.GetComponent<Renderer>();
-            visual.cheekR = cheekR.GetComponent<Renderer>();
-            visual.handL = handL.transform;
-            visual.handR = handR.transform;
-            visual.halo = halo;
-            visual.trail = trail;
-            visual.sparkles = sparkles;
-            visual.glowRenderers = new Renderer[] { eyeL.GetComponent<Renderer>(), eyeR.GetComponent<Renderer>(), mouth.GetComponent<Renderer>() };
-            visual.movement = movement;
-            visual.voice = voice;
+            var v = p.visual;
+            v.squashRoot = squash;
+            v.eyeL = eyeL.transform;
+            v.eyeR = eyeR.transform;
+            v.mouth = mouth.transform;
+            v.cheekL = cheekL.GetComponent<Renderer>();
+            v.cheekR = cheekR.GetComponent<Renderer>();
+            v.handL = handL.transform;
+            v.handR = handR.transform;
+            v.halo = halo;
+            v.trail = trail;
+            v.sparkles = sparkles;
+            v.glowRenderers = new Renderer[] { eyeL.GetComponent<Renderer>(), eyeR.GetComponent<Renderer>(), mouth.GetComponent<Renderer>() };
+            return p;
+        }
+
+        static void WireCommon(Parts p, CompanionConfig config, ClaudeClient claude, CompanionSight eyes, CompanionMemory memory,
+                               CompanionTools tools, CompanionMotion motion, CompanionInput input, CompanionVoice voice,
+                               CompanionBrain brain, CompanionRoom room)
+        {
+            p.visual.movement = motion;
+            p.visual.voice = voice;
 
             voice.config = config;
-            voice.sounds = sounds;
-            voice.subtitle = tmp;
-            voice.subtitleBackground = bg.GetComponent<Renderer>();
-            sounds.config = config;
+            voice.sounds = p.sounds;
+            voice.subtitle = p.subtitle;
+            voice.subtitleBackground = p.subtitleBg;
+            p.sounds.config = config;
             memory.config = config;
-
-            interaction.body = body.transform;
-            interaction.bodyRadius = 0.1f;
-            interaction.movement = movement;
-            movement.bodyRadius = 0.1f;
-            movement.room = room;
-
+            tools.config = config;
+            tools.claude = claude;
             claude.config = config;
+
             brain.config = config;
             brain.claude = claude;
             brain.eyes = eyes;
-            brain.movement = movement;
-            brain.visual = visual;
+            brain.movement = motion;
+            brain.visual = p.visual;
             brain.voice = voice;
-            brain.interaction = interaction;
+            brain.interaction = input;
             brain.memory = memory;
             brain.room = room;
-            brain.sounds = sounds;
+            brain.sounds = p.sounds;
+            brain.tools = tools;
+        }
 
-            eyes.passthroughCameraAccess = FindByTypeName("PassthroughCameraAccess");
-
-            EnsureLight();
-
+        static void Finish(GameObject root)
+        {
             foreach (var c in root.GetComponentsInChildren<Component>(true)) EditorUtility.SetDirty(c);
             EditorSceneManager.MarkSceneDirty(root.scene);
             Selection.activeGameObject = root;
+        }
 
-            string keyNote = string.IsNullOrWhiteSpace(config.apiKey)
-                ? "• Paste your Claude API key: Harley > Select Config (API key)."
+        static string KeyNote(CompanionConfig config) =>
+            string.IsNullOrWhiteSpace(config.apiKey)
+                ? "• Paste your Claude API key (and your city for weather): Harley > Select Config."
                 : "• API key is set.";
-            string camNote = eyes.passthroughCameraAccess != null
-                ? "• Passthrough camera connected."
-                : "• No PassthroughCameraAccess in the scene yet: add it, then drag it into CompanionEyes.";
-            string roomNote = FindByTypeName("MRUK") != null
-                ? "• Room scan (MRUK) found: Harley will know your furniture."
-                : "• No MRUK in the scene: add it so Harley knows your room.";
-            string voiceNote = FindByTypeName("AppDictationExperience") != null || FindByTypeName("TTSSpeaker") != null
+
+        static string VoiceNote() =>
+            FindByTypeName("AppDictationExperience") != null || FindByTypeName("TTSSpeaker") != null
                 ? "• Voice SDK found: Harley connects to it when you press Play."
-                : "• No Voice SDK yet: Harley will use its babble voice and subtitles.";
-            EditorUtility.DisplayDialog("Harley", "Harley is in your scene.\n\n" + keyNote + "\n" + camNote + "\n" + roomNote + "\n" + voiceNote, "OK");
-        }
-
-        [MenuItem("Harley/Select Config (API key)", false, 20)]
-        public static void SelectConfig()
-        {
-            EnsureFolder(RootDir);
-            Selection.activeObject = GetOrCreateConfig();
-            EditorGUIUtility.PingObject(Selection.activeObject);
-        }
-
-        [MenuItem("Harley/Open Memory Folder", false, 40)]
-        public static void OpenMemoryFolder()
-        {
-            EditorUtility.RevealInFinder(Application.persistentDataPath);
-        }
-
-        // ---------- helpers ----------
+                : "• No Voice SDK yet: add the Dictation and Speak Text blocks to talk out loud. Typing and the babble voice work without it.";
 
         static ParticleSystem BuildSparkles(Transform parent, Material mat)
         {
@@ -270,8 +391,7 @@ namespace Harley.EditorTools
                 for (int x = 0; x < n; x++)
                 {
                     float dx = (x + 0.5f) / n * 2f - 1f, dy = (y + 0.5f) / n * 2f - 1f;
-                    float d = Mathf.Sqrt(dx * dx + dy * dy);
-                    float a = Mathf.Clamp01(1f - d);
+                    float a = Mathf.Clamp01(1f - Mathf.Sqrt(dx * dx + dy * dy));
                     a = a * a * (3f - 2f * a);
                     tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
                 }
@@ -336,6 +456,7 @@ namespace Harley.EditorTools
 
         static CompanionConfig GetOrCreateConfig()
         {
+            EnsureFolder(RootDir);
             var c = AssetDatabase.LoadAssetAtPath<CompanionConfig>(ConfigPath);
             if (c != null) return c;
             c = ScriptableObject.CreateInstance<CompanionConfig>();

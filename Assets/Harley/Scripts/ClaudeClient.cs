@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Text;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -18,20 +17,22 @@ namespace Harley
 
     /// <summary>
     /// Minimal Claude Messages API client for Unity (no packages needed).
-    /// Sends text + an optional camera frame and asks for a reply that matches
-    /// Harley's JSON schema (structured outputs), so parsing never breaks.
+    /// - Sends text + an optional picture (camera or screen).
+    /// - Asks for a reply that matches Harley's JSON schema (structured outputs).
+    /// - Runs tools in a loop (web search, weather) before the final reply.
+    /// - SearchWeb() is a separate small call that uses Claude's web search tool.
     /// </summary>
     public class ClaudeClient : MonoBehaviour
     {
         const string Endpoint = "https://api.anthropic.com/v1/messages";
         const string ApiVersion = "2023-06-01";
+        const int MaxToolRounds = 4;
 
         public CompanionConfig config;
 
         public bool Busy { get; private set; }
 
-        // The shape every reply must have. Enums keep the actions to things the
-        // character can actually do.
+        // The shape every reply must have. Enums keep the actions to things Harley can actually do.
         const string ReplySchema = @"{
   ""type"": ""object"",
   ""properties"": {
@@ -46,21 +47,140 @@ namespace Harley
   ""additionalProperties"": false
 }";
 
-        public IEnumerator Send(string system, List<ChatTurn> turns,
-                                Action<string> onText, Action<string> onError)
+        static object _schema;
+        static object Schema => _schema ??= MiniJson.Parse(ReplySchema);
+
+        /// <summary>
+        /// Gets Harley's reply. If tools are given, Claude may call them first
+        /// (onToolStart tells you which one, e.g. to show "checking the weather").
+        /// </summary>
+        public IEnumerator Send(string system, List<ChatTurn> turns, CompanionTools tools,
+                                Action<string> onText, Action<string> onError, Action<string> onToolStart = null)
         {
-            if (config == null || string.IsNullOrWhiteSpace(config.apiKey))
+            if (!HasKey(onError)) yield break;
+            Busy = true;
+            try
             {
-                onError?.Invoke("No API key. Put your key in the CompanionConfig asset.");
-                yield break;
+                var messages = BuildMessages(turns);
+                List<object> toolDefs = tools != null ? tools.Definitions() : null;
+
+                for (int round = 0; round <= MaxToolRounds; round++)
+                {
+                    var body = MiniJson.Obj(
+                        "model", config.model,
+                        "max_tokens", config.maxTokens,
+                        "system", system,
+                        "messages", messages,
+                        "output_config", MiniJson.Obj("format", MiniJson.Obj("type", "json_schema", "schema", Schema)));
+                    if (toolDefs != null && toolDefs.Count > 0) body["tools"] = toolDefs; // keep defined while tool blocks are in the history
+
+                    Dictionary<string, object> resp = null;
+                    string error = null;
+                    yield return Post(MiniJson.Serialize(body), r => resp = r, e => error = e);
+                    if (error != null) { onError?.Invoke(error); yield break; }
+
+                    List<object> content = resp.ListAt("content") ?? new List<object>();
+                    string stop = resp.Str("stop_reason");
+
+                    if (stop == "tool_use" && tools != null)
+                    {
+                        messages.Add(MiniJson.Obj("role", "assistant", "content", content));
+                        var results = new List<object>();
+                        foreach (var o in content)
+                        {
+                            if (!(o is Dictionary<string, object> block) || block.Str("type") != "tool_use") continue;
+                            string name = block.Str("name");
+                            onToolStart?.Invoke(name);
+                            string result = null;
+                            yield return tools.Run(name, block.ObjAt("input") ?? new Dictionary<string, object>(), r => result = r);
+                            results.Add(MiniJson.Obj(
+                                "type", "tool_result",
+                                "tool_use_id", block.Str("id"),
+                                "content", string.IsNullOrWhiteSpace(result) ? "No result." : result));
+                        }
+                        messages.Add(MiniJson.Obj("role", "user", "content", results));
+                        continue;
+                    }
+
+                    string text = CollectText(content);
+                    if (string.IsNullOrEmpty(text)) { onError?.Invoke("Empty reply (stop_reason: " + stop + ")"); yield break; }
+                    onText?.Invoke(text);
+                    yield break;
+                }
+                onError?.Invoke("Too many tool rounds.");
+            }
+            finally { Busy = false; }
+        }
+
+        /// <summary>
+        /// Looks something up on the web with Claude's web search tool and returns a short plain-text answer.
+        /// </summary>
+        public IEnumerator SearchWeb(string query, Action<string> done)
+        {
+            if (!HasKey(e => done?.Invoke("Search failed: " + e))) yield break;
+
+            var tool = MiniJson.Obj(
+                "type", config.webSearchToolType,
+                "name", "web_search",
+                "max_uses", Mathf.Clamp(config.maxSearchesPerQuestion, 1, 5));
+            if (string.CompareOrdinal(config.webSearchToolType, "web_search_20260209") >= 0)
+                tool["allowed_callers"] = new List<object> { "direct" };
+            if (!string.IsNullOrWhiteSpace(config.homeCity) || !string.IsNullOrWhiteSpace(config.countryCode))
+            {
+                var loc = MiniJson.Obj("type", "approximate");
+                string city = config.homeCity.Split(',')[0].Trim();
+                if (city.Length > 0) loc["city"] = city;
+                if (config.countryCode.Trim().Length == 2) loc["country"] = config.countryCode.Trim().ToUpperInvariant();
+                tool["user_location"] = loc;
             }
 
-            Busy = true;
-            byte[] body = Encoding.UTF8.GetBytes(BuildBody(system, turns));
+            var messages = new List<object>
+            {
+                MiniJson.Obj("role", "user", "content",
+                    "Search the web and answer with the key facts (numbers, names, dates, scores) for: " + query +
+                    "\nAnswer in plain text, at most 90 words, no markdown, no links.")
+            };
+            string system = "You are a fast research helper. Today is " + DateTime.Now.ToString("dddd d MMMM yyyy, HH:mm",
+                System.Globalization.CultureInfo.InvariantCulture) + " local time.";
 
+            var answer = new StringBuilder();
+            for (int round = 0; round < 3; round++) // pause_turn can ask us to continue
+            {
+                var body = MiniJson.Obj(
+                    "model", string.IsNullOrWhiteSpace(config.searchModel) ? config.model : config.searchModel,
+                    "max_tokens", 900,
+                    "system", system,
+                    "messages", messages,
+                    "tools", new List<object> { tool });
+
+                Dictionary<string, object> resp = null;
+                string error = null;
+                yield return Post(MiniJson.Serialize(body), r => resp = r, e => error = e);
+                if (error != null) { done?.Invoke("Search failed: " + error); yield break; }
+
+                List<object> content = resp.ListAt("content") ?? new List<object>();
+                answer.Append(CollectText(content));
+                if (resp.Str("stop_reason") != "pause_turn") break;
+                messages.Add(MiniJson.Obj("role", "assistant", "content", content)); // continue the paused turn unchanged
+            }
+            string text = answer.ToString().Trim();
+            done?.Invoke(text.Length > 0 ? text : "The search found nothing useful.");
+        }
+
+        // ---------- plumbing ----------
+
+        bool HasKey(Action<string> onError)
+        {
+            if (config != null && !string.IsNullOrWhiteSpace(config.apiKey)) return true;
+            onError?.Invoke("No API key. Put your key in the CompanionConfig asset.");
+            return false;
+        }
+
+        IEnumerator Post(string json, Action<Dictionary<string, object>> onOk, Action<string> onError)
+        {
             using (var req = new UnityWebRequest(Endpoint, UnityWebRequest.kHttpVerbPOST))
             {
-                req.uploadHandler = new UploadHandlerRaw(body);
+                req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
                 req.downloadHandler = new DownloadHandlerBuffer();
                 req.SetRequestHeader("content-type", "application/json");
                 req.SetRequestHeader("x-api-key", config.apiKey.Trim());
@@ -68,7 +188,6 @@ namespace Harley
                 req.timeout = Mathf.Max(5, config.requestTimeout);
 
                 yield return req.SendWebRequest();
-                Busy = false;
 
                 string raw = req.downloadHandler != null ? req.downloadHandler.text : "";
                 if (req.result != UnityWebRequest.Result.Success)
@@ -76,83 +195,36 @@ namespace Harley
                     onError?.Invoke($"HTTP {req.responseCode}: {req.error}\n{raw}");
                     yield break;
                 }
-
-                ApiResponse resp = null;
-                try { resp = JsonUtility.FromJson<ApiResponse>(raw); }
-                catch (Exception e) { onError?.Invoke("Bad response JSON: " + e.Message + "\n" + raw); yield break; }
-
-                // Pick blocks by type, never by position.
-                var sb = new StringBuilder();
-                if (resp != null && resp.content != null)
-                    foreach (var block in resp.content)
-                        if (block != null && block.type == "text") sb.Append(block.text);
-
-                if (sb.Length == 0)
-                {
-                    onError?.Invoke("Empty reply (stop_reason: " + (resp != null ? resp.stop_reason : "?") + ")");
-                    yield break;
-                }
-                onText?.Invoke(sb.ToString());
+                Dictionary<string, object> resp = null;
+                try { resp = MiniJson.Parse(raw) as Dictionary<string, object>; }
+                catch (Exception e) { onError?.Invoke("Bad response JSON: " + e.Message); yield break; }
+                if (resp == null) { onError?.Invoke("Empty response"); yield break; }
+                onOk?.Invoke(resp);
             }
         }
 
-        string BuildBody(string system, List<ChatTurn> turns)
+        static List<object> BuildMessages(List<ChatTurn> turns)
         {
-            var sb = new StringBuilder(4096);
-            sb.Append('{');
-            sb.Append("\"model\":").Append(Q(config.model)).Append(',');
-            sb.Append("\"max_tokens\":").Append(config.maxTokens.ToString(CultureInfo.InvariantCulture)).Append(',');
-            sb.Append("\"system\":").Append(Q(system)).Append(',');
-            sb.Append("\"output_config\":{\"format\":{\"type\":\"json_schema\",\"schema\":").Append(ReplySchema).Append("}},");
-            sb.Append("\"messages\":[");
-            for (int i = 0; i < turns.Count; i++)
+            var messages = new List<object>();
+            foreach (var t in turns)
             {
-                var t = turns[i];
-                if (i > 0) sb.Append(',');
-                sb.Append("{\"role\":").Append(t.fromUser ? "\"user\"" : "\"assistant\"").Append(",\"content\":[");
-                bool needComma = false;
+                var content = new List<object>();
                 if (t.fromUser && !string.IsNullOrEmpty(t.jpegBase64))
-                {
-                    sb.Append("{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"media_type\":\"image/jpeg\",\"data\":\"")
-                      .Append(t.jpegBase64).Append("\"}}");
-                    needComma = true;
-                }
-                if (needComma) sb.Append(',');
-                sb.Append("{\"type\":\"text\",\"text\":").Append(Q(string.IsNullOrEmpty(t.text) ? "..." : t.text)).Append('}');
-                sb.Append("]}");
+                    content.Add(MiniJson.Obj("type", "image", "source",
+                        MiniJson.Obj("type", "base64", "media_type", "image/jpeg", "data", t.jpegBase64)));
+                content.Add(MiniJson.Obj("type", "text", "text", string.IsNullOrEmpty(t.text) ? "..." : t.text));
+                messages.Add(MiniJson.Obj("role", t.fromUser ? "user" : "assistant", "content", content));
             }
-            sb.Append("]}");
-            return sb.ToString();
+            return messages;
         }
 
-        /// <summary>JSON string literal with proper escaping.</summary>
-        static string Q(string s)
+        // Pick blocks by type, never by position.
+        static string CollectText(List<object> content)
         {
-            if (s == null) return "\"\"";
-            var sb = new StringBuilder(s.Length + 8);
-            sb.Append('"');
-            foreach (char c in s)
-            {
-                switch (c)
-                {
-                    case '"': sb.Append("\\\""); break;
-                    case '\\': sb.Append("\\\\"); break;
-                    case '\n': sb.Append("\\n"); break;
-                    case '\r': sb.Append("\\r"); break;
-                    case '\t': sb.Append("\\t"); break;
-                    case '\b': sb.Append("\\b"); break;
-                    case '\f': sb.Append("\\f"); break;
-                    default:
-                        if (c < 0x20) sb.Append("\\u").Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
-                        else sb.Append(c);
-                        break;
-                }
-            }
-            sb.Append('"');
+            var sb = new StringBuilder();
+            foreach (var o in content)
+                if (o is Dictionary<string, object> b && b.Str("type") == "text") sb.Append(b.Str("text"));
             return sb.ToString();
         }
-
-        [Serializable] class ContentBlock { public string type; public string text; }
-        [Serializable] class ApiResponse { public ContentBlock[] content; public string stop_reason; }
     }
 }

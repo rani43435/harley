@@ -14,18 +14,38 @@ namespace Harley
         [Tooltip("claude-haiku-5-5 is the fastest, which matters for a talking character. claude-sonnet-5-5 is smarter but slower.")]
         public string model = "claude-haiku-5-5";
         [Tooltip("Upper bound for one reply. Replies are 1-2 short sentences, so this is plenty.")]
-        public int maxTokens = 500;
+        public int maxTokens = 600;
         [Tooltip("Seconds before a request is given up.")]
-        public int requestTimeout = 30;
+        public int requestTimeout = 40;
 
         [Header("Character")]
         public string companionName = "Harley";
         [TextArea(2, 6)]
         public string personality =
             "Playful, curious and warm. A little cheeky but never mean. " +
-            "Loves noticing small details in the player's room and asking about them.";
+            "Loves noticing small details in what the player is looking at and asking about them.";
         [Tooltip("Language to use until the player speaks. After that Harley answers in whatever language the player uses.")]
         public string defaultLanguage = "English";
+
+        [Header("Internet")]
+        [Tooltip("Let Harley search the web for news, scores, prices and anything recent.")]
+        public bool webSearch = true;
+        [Tooltip("Claude's web search tool version.")]
+        public string webSearchToolType = "web_search_20260318";
+        [Tooltip("Model used for web searches.")]
+        public string searchModel = "claude-haiku-5-5";
+        [Range(1, 5)] public int maxSearchesPerQuestion = 3;
+        [Tooltip("Live weather from Open-Meteo (free, no key).")]
+        public bool weather = true;
+
+        [Header("Where you live (weather, local news)")]
+        [Tooltip("City, optionally with region to pick the right one, e.g. \"Münster, Hessen\".")]
+        public string homeCity = "";
+        [Tooltip("Two-letter country code, e.g. DE.")]
+        public string countryCode = "";
+        [Tooltip("Optional exact position. Leave 0 to look up Home City.")]
+        public float homeLatitude = 0f;
+        public float homeLongitude = 0f;
 
         [Header("Memory")]
         [Tooltip("How many back-and-forth exchanges Harley keeps in mind during one session.")]

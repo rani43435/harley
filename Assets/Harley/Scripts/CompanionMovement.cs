@@ -14,10 +14,8 @@ namespace Harley
     /// colliders (Effect Mesh / Room Mesh with colliders on). Without either it
     /// still works, it just flies through walls.
     /// </summary>
-    public class CompanionMovement : MonoBehaviour
+    public class CompanionMovement : CompanionMotion
     {
-        [Tooltip("Player head. Empty = Main Camera.")]
-        public Transform head;
         public CompanionRoom room;
 
         [Header("Follow")]
@@ -51,18 +49,16 @@ namespace Harley
         public float bodyRadius = 0.1f;
 
         public CompanionAction CurrentAction { get; private set; } = CompanionAction.Follow;
-        public Vector3 Velocity => _vel;
-        public Vector3 LookPoint { get; private set; }
-        public bool IsSitting { get; private set; }
-        public bool IsHeld { get; private set; }
-        public bool IsFlying { get; private set; }
-        /// <summary>Name of the room object it went to with go_to, if any.</summary>
-        public string CurrentPlace { get; private set; } = "";
+        public override Vector3 Velocity => _vel;
+        public override Vector3 LookPoint => _lookPoint;
+        public override bool IsSitting => _sitting;
+        public override bool IsHeld => _held;
+        public override bool IsFlying => _flying;
+        public override string CurrentPlace => _place;
 
-        /// <summary>Hit a wall or the floor while thrown. Value = impact speed.</summary>
-        public event Action<float> Bounced;
-        /// <summary>Came to rest after being thrown.</summary>
-        public event Action Landed;
+        Vector3 _lookPoint;
+        bool _sitting, _held, _flying;
+        string _place = "";
 
         Vector3 _target, _vel, _lastPos;
         float _actionUntil = float.PositiveInfinity;
@@ -97,14 +93,14 @@ namespace Harley
 
         // ---------- commands ----------
 
-        public void Perform(CompanionAction action, CompanionRoom.Thing thing = null)
+        public override void Perform(CompanionAction action, CompanionRoom.Thing thing = null)
         {
             if (head == null || IsHeld || IsFlying) return;
             CurrentAction = action;
-            IsSitting = false;
+            _sitting = false;
             _skipLineOfSight = false;
             _waypoints.Clear();
-            CurrentPlace = "";
+            _place = "";
 
             switch (action)
             {
@@ -132,28 +128,28 @@ namespace Harley
             CurrentAction = CompanionAction.Stay;
             _target = transform.position;
             _actionUntil = Time.time + seconds;
-            IsSitting = false;
+            _sitting = false;
         }
 
         // ---------- grab & throw ----------
 
-        public void BeginHold()
+        public override void BeginHold()
         {
-            IsHeld = true;
-            IsFlying = false;
-            IsSitting = false;
+            _held = true;
+            _flying = false;
+            _sitting = false;
             _holdTarget = transform.position;
         }
 
-        public void HoldAt(Vector3 p) => _holdTarget = p;
+        public override void HoldAt(Vector3 p) => _holdTarget = p;
 
-        public void Release(Vector3 handVelocity)
+        public override void Release(Vector3 handVelocity)
         {
             if (!IsHeld) return;
-            IsHeld = false;
+            _held = false;
             if (handVelocity.magnitude > 1.1f)
             {
-                IsFlying = true;
+                _flying = true;
                 _throwVel = Vector3.ClampMagnitude(handVelocity * 1.1f, maxThrowSpeed);
                 _flyUntil = Time.time + 2.5f;
             }
@@ -182,7 +178,7 @@ namespace Harley
             if (Time.time >= _actionUntil) Perform(CompanionAction.Follow);
 
             float smooth = smoothTime;
-            LookPoint = head.position;
+            _lookPoint = head.position;
 
             switch (CurrentAction)
             {
@@ -201,22 +197,22 @@ namespace Harley
                     smooth = smoothTime * 1.6f;
                     if (_waypoints.Count == 0) { Perform(CompanionAction.Follow); break; }
                     _target = _waypoints[0];
-                    LookPoint = _target + _vel.normalized * 0.5f;
+                    _lookPoint = _target + _vel.normalized * 0.5f;
                     if (Vector3.Distance(transform.position, _target) < 0.12f)
                     {
-                        LookPoint = head.position;
+                        _lookPoint = head.position;
                         if (_nextWaypointAt <= 0f) _nextWaypointAt = Time.time + UnityEngine.Random.Range(1.5f, 3.5f);
                         if (Time.time >= _nextWaypointAt) { _waypoints.RemoveAt(0); _nextWaypointAt = 0f; }
                     }
                     break;
 
                 case CompanionAction.LookAtThing:
-                    LookPoint = _thingPoint;
+                    _lookPoint = _thingPoint;
                     break;
 
                 case CompanionAction.Sit:
                     _target = _sitSpot + Vector3.up * bodyRadius * 0.92f;
-                    IsSitting = Vector3.Distance(transform.position, _target) < 0.05f;
+                    _sitting = Vector3.Distance(transform.position, _target) < 0.05f;
                     if (Vector3.Distance(Flat3(head.position), Flat3(_sitSpot)) > 2.8f) Perform(CompanionAction.Follow);
                     break;
 
@@ -225,9 +221,9 @@ namespace Harley
                     smooth = smoothTime * 1.3f;
                     _target = _goTarget;
                     bool arrived = Vector3.Distance(transform.position, _target) < 0.06f;
-                    IsSitting = _goSeat && arrived;
+                    _sitting = _goSeat && arrived;
                     // On the way: look where it's going. There: seats look at you, other things get looked at.
-                    LookPoint = !arrived ? _thingPoint : (_goSeat ? head.position : _thingPoint);
+                    _lookPoint = !arrived ? _thingPoint : (_goSeat ? head.position : _thingPoint);
                     if (Vector3.Distance(Flat3(head.position), Flat3(_goTarget)) > 3.5f) Perform(CompanionAction.Follow);
                     break;
                 }
@@ -268,7 +264,7 @@ namespace Harley
             _vel = (p - _lastPos) / dt;
             transform.position = p;
             _lastPos = p;
-            LookPoint = head.position;
+            _lookPoint = head.position;
         }
 
         void UpdateFlying(float dt)
@@ -308,10 +304,10 @@ namespace Harley
             bool resting = pos.y <= minY + 0.01f && _throwVel.magnitude < 0.35f;
             if (resting || Time.time > _flyUntil)
             {
-                IsFlying = false;
+                _flying = false;
                 _vel = Vector3.zero;
                 StayHere(1.8f); // shake it off, then come back
-                Landed?.Invoke();
+                RaiseLanded();
             }
         }
 
@@ -319,7 +315,7 @@ namespace Harley
         {
             if (impact < 0.4f || Time.time - _lastBounce < 0.12f) return;
             _lastBounce = Time.time;
-            Bounced?.Invoke(impact);
+            RaiseBounced(impact);
         }
 
         // ---------- follow ----------
@@ -393,7 +389,7 @@ namespace Harley
 
         void PlanGoTo(CompanionRoom.Thing t)
         {
-            CurrentPlace = t.name;
+            _place = t.name;
             _thingPoint = t.center;
             _goSeat = false;
 

@@ -23,7 +23,7 @@ namespace Harley
         public Renderer[] glowRenderers; // eyes + mouth: tinted by emotion
 
         [Header("Links")]
-        public CompanionMovement movement;
+        public CompanionMotion movement;
         public CompanionVoice voice;
 
         [Header("Colours")]
@@ -63,7 +63,7 @@ namespace Harley
         void Awake()
         {
             _mpb = new MaterialPropertyBlock();
-            if (movement == null) movement = GetComponentInParent<CompanionMovement>();
+            if (movement == null) movement = GetComponentInParent<CompanionMotion>();
             if (voice == null) voice = GetComponentInParent<CompanionVoice>();
             if (eyeL) { _eyeLBase = eyeL.localPosition; _eyeScale = eyeL.localScale; }
             if (eyeR) _eyeRBase = eyeR.localPosition;

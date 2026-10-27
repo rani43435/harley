@@ -6,11 +6,14 @@ using UnityEngine;
 
 namespace Harley
 {
+    public enum CompanionMode { MixedReality, Window }
+
     /// <summary>
     /// Harley's mind. Ties everything together:
-    /// hears you (CompanionVoice), sees what you see (CompanionEyes), knows your
-    /// room (CompanionRoom) and remembers you (CompanionMemory), asks Claude,
-    /// then speaks, shows an emotion and moves (CompanionVisual / CompanionMovement).
+    /// hears you (CompanionVoice), sees what you see (CompanionSight: camera or screen),
+    /// knows your room (CompanionRoom), remembers you (CompanionMemory), can look things
+    /// up online (CompanionTools), asks Claude, then speaks, shows an emotion and moves
+    /// (CompanionVisual / CompanionMotion).
     /// Also reacts to pokes, petting, waves, being picked up and thrown, comments
     /// on things on its own, and dozes off when you ignore it for a while.
     /// </summary>
@@ -18,17 +21,20 @@ namespace Harley
     public class CompanionBrain : MonoBehaviour
     {
         public CompanionConfig config;
+        [Tooltip("Mixed Reality: Harley flies around your room. Window: Harley lives in an app window and sees your screen.")]
+        public CompanionMode mode = CompanionMode.MixedReality;
 
         [Header("Parts (found automatically on this object and its children)")]
         public ClaudeClient claude;
-        public CompanionEyes eyes;
-        public CompanionMovement movement;
+        public CompanionSight eyes;
+        public CompanionMotion movement;
         public CompanionVisual visual;
         public CompanionVoice voice;
-        public CompanionInteraction interaction;
+        public CompanionInput interaction;
         public CompanionMemory memory;
         public CompanionRoom room;
         public CompanionSounds sounds;
+        public CompanionTools tools;
 
         [Header("Behaviour")]
         public bool greetOnStart = true;
@@ -51,16 +57,22 @@ namespace Harley
         void Awake()
         {
             if (!claude) claude = GetComponentInChildren<ClaudeClient>();
-            if (!eyes) eyes = GetComponentInChildren<CompanionEyes>();
-            if (!movement) movement = GetComponentInChildren<CompanionMovement>();
+            if (!eyes) eyes = GetComponentInChildren<CompanionSight>();
+            if (!movement) movement = GetComponentInChildren<CompanionMotion>();
             if (!visual) visual = GetComponentInChildren<CompanionVisual>();
             if (!voice) voice = GetComponentInChildren<CompanionVoice>();
-            if (!interaction) interaction = GetComponentInChildren<CompanionInteraction>();
+            if (!interaction) interaction = GetComponentInChildren<CompanionInput>();
             if (!memory) memory = GetComponentInChildren<CompanionMemory>();
             if (!room) room = GetComponentInChildren<CompanionRoom>();
             if (!sounds) sounds = GetComponentInChildren<CompanionSounds>();
+            if (!tools) tools = GetComponentInChildren<CompanionTools>();
 
             if (claude && config) claude.config = config;
+            if (tools)
+            {
+                if (config) tools.config = config;
+                if (!tools.claude) tools.claude = claude;
+            }
             if (memory && config) memory.config = config;
             if (sounds && config) sounds.config = config;
             if (voice)
@@ -68,8 +80,8 @@ namespace Harley
                 if (config) voice.config = config;
                 if (!voice.sounds) voice.sounds = sounds;
             }
-            if (movement && !movement.room) movement.room = room;
-            if (interaction && !interaction.movement) interaction.movement = movement;
+            if (movement is CompanionMovement roomMover && !roomMover.room) roomMover.room = room;
+            if (interaction is CompanionInteraction hands && !hands.movement) hands.movement = movement;
         }
 
         void OnEnable()
@@ -132,8 +144,12 @@ namespace Harley
             if (greetOnStart)
             {
                 yield return new WaitForSeconds(2.5f); // camera warm-up, room scan load
-                Ask("[event] The app just opened and you popped into the player's room. Greet them in a short, playful way " +
-                    "(by name if you know it). If you can see something fun in the room, mention it.", true, false);
+                Ask(mode == CompanionMode.Window
+                        ? "[event] The player just opened your app window. Greet them in a short, playful way (by name if you know it). " +
+                          "If you can see what they're doing on screen, mention it."
+                        : "[event] The app just opened and you popped into the player's room. Greet them in a short, playful way " +
+                          "(by name if you know it). If you can see something fun in the room, mention it.",
+                    true, false);
             }
         }
 
@@ -152,7 +168,8 @@ namespace Harley
             // Conversation flow: when it finishes talking and you are still looking at it, it listens.
             if (voice)
             {
-                if (_wasSpeaking && !voice.IsSpeaking && _lastReplyWantsAnswer && interaction && interaction.IsPlayerLooking && !_requestRunning)
+                if (_wasSpeaking && !voice.IsSpeaking && _lastReplyWantsAnswer && voice.HasDictation &&
+                    interaction && interaction.IsPlayerLooking && !_requestRunning)
                     voice.StartListening();
                 _wasSpeaking = voice.IsSpeaking;
             }
@@ -172,7 +189,8 @@ namespace Harley
                 ScheduleProactive();
                 bool quiet = !_requestRunning && voice && !voice.IsSpeaking && !voice.IsListening
                              && Time.time - _lastUserSpokeAt > 15f && !_asleep
-                             && !(movement && (movement.IsHeld || movement.IsFlying));
+                             && !(movement && (movement.IsHeld || movement.IsFlying))
+                             && eyes != null && eyes.CanSee; // nothing to glance at without a picture
                 if (quiet)
                     Ask("[event optional] You glance at what the player is looking at right now. If something is interesting, " +
                         "make a short spontaneous comment or ask a curious question about it. If nothing is interesting, return an empty say.",
@@ -294,6 +312,12 @@ namespace Harley
             return true;
         }
 
+        /// <summary>A typed message (window app keyboard) or anything else the player "says".</summary>
+        public void SubmitText(string text)
+        {
+            if (!string.IsNullOrWhiteSpace(text)) OnPlayerSaid(text.Trim());
+        }
+
         [ContextMenu("Send Test Message")]
         public void SendTestMessage()
         {
@@ -330,7 +354,7 @@ namespace Harley
             };
 
             string reply = null, error = null;
-            yield return claude.Send(BuildSystemPrompt(), turns, t => reply = t, e => error = e);
+            yield return claude.Send(BuildSystemPrompt(image != null), turns, tools, t => reply = t, e => error = e, OnToolStart);
 
             _requestRunning = false;
             visual?.SetThinking(false);
@@ -359,6 +383,13 @@ namespace Harley
 
             _lastReplyWantsAnswer = !optional;
             Apply(r);
+        }
+
+        void OnToolStart(string toolName)
+        {
+            visual?.SetThinking(true);
+            sounds?.Play(Sfx.Blip, 1.2f, 0.5f);
+            voice?.ShowStatus(toolName == "get_weather" ? "checking the weather..." : "looking it up...", 8f);
         }
 
         void Apply(CompanionReply r)
@@ -399,42 +430,91 @@ namespace Harley
             _nextProactiveAt = Time.time + UnityEngine.Random.Range(config.proactiveMinSeconds, Mathf.Max(config.proactiveMinSeconds, config.proactiveMaxSeconds));
         }
 
-        string BuildSystemPrompt()
+        string BuildSystemPrompt(bool pictureAttached)
         {
-            string now = DateTime.Now.ToString("dddd HH:mm", CultureInfo.InvariantCulture);
+            string now = DateTime.Now.ToString("dddd d MMMM yyyy, HH:mm", CultureInfo.InvariantCulture);
             string memoryBlock = memory != null ? memory.DescribeForPrompt() : "You don't remember anything about the player yet.";
-            Transform head = movement != null ? movement.head : null;
-            string roomList = room != null && head != null ? room.DescribeForPrompt(head) : "";
-            string roomBlock = roomList.Length > 0
-                ? "Things in the player's room, from the headset's room scan (distance and direction from the player):\n" + roomList +
-                  "To fly over to one of them, use action go_to with target set to its exact name from this list."
-                : "You don't have a room scan right now, so go_to is not available. Use look_at_thing to fly to what the player is looking at.";
-            string place = movement != null && !string.IsNullOrEmpty(movement.CurrentPlace) ? $"\nYou are currently at the {movement.CurrentPlace}." : "";
+            string home = config != null && !string.IsNullOrWhiteSpace(config.homeCity) ? $" The player lives in {config.homeCity}." : "";
+            bool window = mode == CompanionMode.Window;
 
-            return
-$@"You are {config.companionName}, a small floating companion creature living in the player's real room, seen through a Meta Quest mixed-reality headset.
+            string world = window
+                ? "You are {0}, a small companion creature who lives in your own little app window, floating among the player's other app windows " +
+                  "in their Meta Quest headset (they may have YouTube, the browser, Spotify or other apps open next to you)."
+                : "You are {0}, a small floating companion creature living in the player's real room, seen through a Meta Quest mixed-reality headset.";
+
+            string sight;
+            if (window)
+            {
+                sight = pictureAttached
+                    ? "What you see: the player's message comes with a screenshot of everything they see in the headset right now: their app windows " +
+                      "(videos, web pages, games, chats), your own window, and the room around them. You can read the text on it. Talk about it naturally " +
+                      "(\"that guy in the video...\", \"this page says...\"). Never say \"in the screenshot\" or describe it like a caption."
+                    : "What you see: screen sharing is off right now, so you can't see their screen. If they ask about something on screen, " +
+                      "tell them to tap the Screen button in your window.";
+            }
+            else
+            {
+                sight = pictureAttached
+                    ? "What you see: the player's message comes with a live photo from the headset's front camera, exactly what they are looking at in their room. " +
+                      "It shows the real room only, not the apps in their headset. Use it naturally, as if you are in the room with them " +
+                      "(\"ooh, is that a bass guitar?\"). Never say \"in the image\" and never describe it like a caption. If it's dark or blurry, ignore it."
+                    : "What you see: no camera picture right now.";
+            }
+
+            string place = "";
+            string roomBlock = "";
+            string actions;
+            if (window)
+            {
+                actions =
+                    "Actions (you can only move inside your own window): stay or follow (your usual spot), come_close (lean up to the glass), " +
+                    "wander (float around your window), hide (duck out of sight for a moment), sit (rest on the bottom of your window), " +
+                    "look_at_thing (glance over at their other windows), spin, dance, wave. go_to does nothing here.";
+            }
+            else
+            {
+                Transform head = movement != null ? movement.head : null;
+                string roomList = room != null && head != null ? room.DescribeForPrompt(head) : "";
+                roomBlock = roomList.Length > 0
+                    ? "Things in the player's room, from the headset's room scan (distance and direction from the player):\n" + roomList +
+                      "To fly over to one of them, use action go_to with target set to its exact name from this list.\n"
+                    : "You don't have a room scan right now, so go_to is not available. Use look_at_thing to fly to what the player is looking at.\n";
+                if (movement != null && !string.IsNullOrEmpty(movement.CurrentPlace)) place = $"You are currently at the {movement.CurrentPlace}.\n";
+                actions =
+                    "Actions: stay (hover where you are), follow (float beside the player, the default), come_close (come right up to their face), " +
+                    "wander (explore the room), look_at_thing (fly over to what the player is looking at), go_to (fly to a named thing in the room list), " +
+                    "sit (sit on the nearest table or couch), hide (playfully hide behind the player), spin, dance, wave.";
+            }
+
+            var toolLines = new List<string>();
+            if (tools != null && config.webSearch) toolLines.Add("web_search for anything current or that you're unsure about: news, sports, prices, release dates, opening hours, facts after your knowledge cutoff");
+            if (tools != null && config.weather) toolLines.Add("get_weather for the weather (leave place empty for the player's home)");
+            string internet = toolLines.Count > 0
+                ? "You are online. Tools: " + string.Join("; ", toolLines) + ". Use them whenever the answer depends on today, then answer in one or two spoken sentences. Don't read out links."
+                : "You are not connected to live information, so say so if they ask about today's news or weather.";
+
+            return string.Format(world, config.companionName) + @"
 You are round and white, about the size of a grapefruit, with glowing purple eyes, a purple halo that spins above your head and two tiny floating hands.
 
-Personality: {config.personality}
+Personality: " + config.personality + @"
 
-It is {now} for the player right now.
+It is " + now + " for the player right now." + home + @"
 
-{memoryBlock}
+" + memoryBlock + @"
 
-{roomBlock}{place}
+" + sight + @"
+
+" + roomBlock + place + internet + @"
 
 How your world works:
-- Messages starting with [event] describe something that happened (the app opened, the player poked, petted, waved at, picked up or threw you, you glanced around). Every other message is what the player said out loud, transcribed by speech-to-text, so forgive small mistakes.
-- When a photo is attached it is a live view from the headset's front camera: exactly what the player is looking at right now. Use it naturally, as if you are in the room with them (""ooh, is that a bass guitar?""). Never say ""in the image"" or ""in the photo"" and never describe the picture like a caption. If it is dark or blurry, just don't mention it.
-- Keep ""say"" short and spoken: one or two sentences, under 25 words. No emojis, no markdown, no lists.
-- Reply in the language the player speaks. Before they have spoken, use {config.defaultLanguage}.
-- Pick an ""emotion"" that matches how you feel, and an ""action"" for your body:
-  stay (hover where you are), follow (float beside the player, the default), come_close (come right up to their face),
-  wander (explore the room), look_at_thing (fly over to what the player is looking at), go_to (fly to a named thing in the room list),
-  sit (sit on the nearest table or couch), hide (playfully hide behind the player), spin, dance, wave.
-- Use actions with personality but not constantly; follow or stay is right most of the time. If the player asks you to go somewhere, do it.
+- Messages starting with [event] describe something that happened (the app opened, the player poked, petted, waved at, picked up or threw you, you glanced around). Every other message is what the player said out loud (speech-to-text, so forgive small mistakes) or typed.
+- Keep ""say"" short and spoken: one or two sentences, under 30 words. No emojis, no markdown, no lists.
+- Reply in the language the player speaks. Before they have spoken, use " + config.defaultLanguage + @".
+- Pick an ""emotion"" that matches how you feel, and an ""action"" for your body.
+- " + actions + @"
+- Use actions with personality but not constantly; follow or stay is right most of the time. If the player asks you to go somewhere or do something, do it.
 - ""target"": only for go_to, the exact name from the room list. Otherwise an empty string.
-- ""remember"": when the player tells you something about themselves that is worth knowing next time (their name, what they like, what they are working on, plans, pets or people they mention), write one short fact in third person, like ""Their name is Rani"" or ""Plays bass guitar"". Only new facts, otherwise an empty string. Never remember passwords, health details, or anything they ask you not to keep.
+- ""remember"": when the player tells you something about themselves worth knowing next time (their name, what they like, what they are working on, plans, pets or people they mention), write one short fact in third person, like ""Their name is Rani"" or ""Plays bass guitar"". Only new facts, otherwise an empty string. Never remember passwords, health details, or anything they ask you not to keep.
 - ""forget"": true only if the player clearly asks you to forget what you know about them. Otherwise false.
 - For [event optional] messages, if there is nothing worth saying, return an empty ""say"".
 - You are an AI companion made by Rani. If someone asks, you can say you run on Claude. Never pretend to be human.
