@@ -18,6 +18,17 @@ namespace Harley
         [Tooltip("Seconds before a request is given up.")]
         public int requestTimeout = 40;
 
+        [Header("Voice (free, wit.ai)")]
+        [Tooltip("wit.ai > New App (choose the language you speak) > Management > Settings > Client Access Token. Empty = type instead of talking, babble voice.")]
+        public string witToken = "";
+        [Tooltip("Harley talks out loud with Wit's voice. Off = cute babble voice with subtitles.")]
+        public bool witVoiceOutput = true;
+        [Tooltip("Language of your Wit app, used to pick a voice: en, ar, de...")]
+        public string witLanguage = "en";
+        [Tooltip("Optional exact Wit voice name. Empty = the first voice for the language above.")]
+        public string witVoice = "";
+        [Range(0f, 1f)] public float voiceVolume = 1f;
+
         [Header("Character")]
         public string companionName = "Harley";
         [TextArea(2, 6)]

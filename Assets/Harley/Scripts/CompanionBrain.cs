@@ -188,7 +188,7 @@ namespace Harley
             }
 
             // Doze off when ignored (in the window app only when it can't watch your screen)
-            bool canWatch = mode == CompanionMode.Window && eyes != null && eyes.CanSee;
+            bool canWatch = (mode == CompanionMode.Window || WebPanel.Windows.Count > 0) && eyes != null && eyes.CanSee;
             if (!_asleep && !canWatch && interaction && interaction.IdleSeconds > sleepAfterSeconds && !_requestRunning && voice && !voice.IsSpeaking && !voice.IsListening)
             {
                 _asleep = true;
@@ -473,7 +473,8 @@ namespace Harley
             string world = window
                 ? "You are {0}, a small companion creature who lives in your own little app window, floating among the player's other app windows " +
                   "in their Meta Quest headset (they may have YouTube, the browser, Spotify or other apps open next to you)."
-                : "You are {0}, a small floating companion creature living in the player's real room, seen through a Meta Quest mixed-reality headset.";
+                : "You are {0}, a small floating companion creature living in the player's real room, seen through a Meta Quest mixed-reality headset. " +
+                  "The player can open floating browser windows (YouTube, Google, any website) in the room from your menu, and you can see those too when they look at them.";
 
             string sight;
             if (window)
@@ -485,13 +486,21 @@ namespace Harley
                     : "What you see: screen sharing is off right now, so you can't see their screen. If they ask about something on screen, " +
                       "tell them to tap the Screen button in your window.";
             }
+            else if (pictureAttached && eyes != null && eyes.Kind == "browser")
+            {
+                sight = "What you see: the player's message comes with a picture of the browser window they are looking at right now (a web page, " +
+                        "a YouTube video...). " + eyes.ViewNote + " You can read the text on it. Talk about it naturally (\"this video...\", \"that page says...\"). " +
+                        "Never say \"in the image\" or describe it like a caption.";
+            }
             else
             {
                 sight = pictureAttached
                     ? "What you see: the player's message comes with a live photo from the headset's front camera, exactly what they are looking at in their room. " +
-                      "It shows the real room only, not the apps in their headset. Use it naturally, as if you are in the room with them " +
+                      "It shows the real room only, not virtual windows. Use it naturally, as if you are in the room with them " +
                       "(\"ooh, is that a bass guitar?\"). Never say \"in the image\" and never describe it like a caption. If it's dark or blurry, ignore it."
                     : "What you see: no camera picture right now.";
+                string note = eyes != null ? eyes.ViewNote : "";
+                if (note.Length > 0) sight += " " + note;
             }
 
             string place = "";

@@ -37,7 +37,7 @@ namespace Harley.EditorTools
 
         // ---------- window app ----------
 
-        [MenuItem("Harley/Create Window App Scene", false, 0)]
+        [MenuItem("Harley/Advanced/Create Window App Scene (old 2D version)", false, 100)]
         public static void CreateWindowApp()
         {
             if (FindByTypeName("OVRCameraRig") != null || FindByTypeName("OVRManager") != null)
@@ -116,21 +116,26 @@ namespace Harley.EditorTools
 
         // ---------- mixed reality ----------
 
-        [MenuItem("Harley/Create Mixed Reality Harley", false, 1)]
-        public static void CreateMixedReality()
+        [MenuItem("Harley/Advanced/Add Mixed Reality Harley Only", false, 101)]
+        static void CreateMixedRealityMenu() => CreateMixedReality(true);
+
+        /// <summary>Harley in 3D in your room, plus the pointer, the floating menu and the wrist button.</summary>
+        public static void CreateMixedReality(bool showDialog)
         {
             CompanionConfig config = GetOrCreateConfig();
             Camera cam = Camera.main;
             Vector3 pos = cam != null
                 ? cam.transform.position + Flat(cam.transform.forward) * 0.9f + Vector3.down * 0.2f
                 : new Vector3(0f, 1.3f, 0.9f);
+            if (pos.y < 0.6f) pos.y = 1.2f; // the rig's camera sits on the floor in the Editor; on the headset it's at eye height
 
             Parts p = BuildBody(pos);
             GameObject root = p.root;
 
             var claude = root.AddComponent<ClaudeClient>();
-            var eyes = root.AddComponent<PassthroughEyes>();
+            var eyes = root.AddComponent<MixedEyes>();
             eyes.maxSize = 512; eyes.jpegQuality = 70;
+            eyes.pageMaxSize = 1024;
             var room = root.AddComponent<CompanionRoom>();
             var memory = root.AddComponent<CompanionMemory>();
             var tools = root.AddComponent<CompanionTools>();
@@ -148,9 +153,28 @@ namespace Harley.EditorTools
             WireCommon(p, config, claude, eyes, memory, tools, movement, interaction, voice, brain, room);
             brain.mode = CompanionMode.MixedReality;
             eyes.passthroughCameraAccess = FindByTypeName("PassthroughCameraAccess");
+            var wit = root.AddComponent<WitSpeech>();
+            wit.config = config;
+            voice.wit = wit;
+
+            // Floating UI: pointer for hands/controllers, the settings menu, the wrist button
+            var ui = new GameObject("Harley UI");
+            Undo.RegisterCreatedObjectUndo(ui, "Create Harley UI");
+            var pointer = ui.AddComponent<HarleyPointer>();
+            pointer.lineMaterial = AssetDatabase.LoadAssetAtPath<Material>(MatDir + "/Harley_Glow.mat");
+            var menuGO = new GameObject("Harley Menu");
+            menuGO.transform.SetParent(ui.transform, false);
+            var menu = menuGO.AddComponent<HarleyMenu>();
+            menu.brain = brain;
+            var wristGO = new GameObject("Harley Wrist Button");
+            wristGO.transform.SetParent(ui.transform, false);
+            var wrist = wristGO.AddComponent<WristButton>();
+            wrist.menu = menu;
+            foreach (var c in ui.GetComponentsInChildren<Component>(true)) EditorUtility.SetDirty(c);
 
             EnsureLight();
             Finish(root);
+            if (!showDialog) return;
 
             string camNote = eyes.passthroughCameraAccess != null
                 ? "• Passthrough camera connected."
@@ -158,7 +182,7 @@ namespace Harley.EditorTools
             string roomNote = FindByTypeName("MRUK") != null
                 ? "• Room scan (MRUK) found: Harley will know your furniture."
                 : "• No MRUK in the scene: add the MR Utility Kit block so Harley knows your room.";
-            EditorUtility.DisplayDialog("Harley", "Harley is in your room.\n\n" + KeyNote(config) + "\n" + camNote + "\n" + roomNote + "\n" + VoiceNote(), "OK");
+            EditorUtility.DisplayDialog("Harley", "Harley is in your room.\n\n" + KeyNote(config) + "\n" + camNote + "\n" + roomNote + "\n" + VoiceNote(config), "OK");
         }
 
         [MenuItem("Harley/Select Config (API key, city)", false, 20)]
@@ -330,10 +354,10 @@ namespace Harley.EditorTools
                 ? "• Paste your Claude API key (and your city for weather): Harley > Select Config."
                 : "• API key is set.";
 
-        static string VoiceNote() =>
-            FindByTypeName("AppDictationExperience") != null || FindByTypeName("TTSSpeaker") != null
-                ? "• Voice SDK found: Harley connects to it when you press Play."
-                : "• No Voice SDK yet: add the Dictation and Speak Text blocks to talk out loud. Typing and the babble voice work without it.";
+        static string VoiceNote(CompanionConfig config = null) =>
+            config != null && !string.IsNullOrWhiteSpace(config.witToken)
+                ? "• Wit token set: Harley listens and talks out loud."
+                : "• To talk out loud, paste a free wit.ai Client Access Token into Wit Token (Harley > Select Config). Typing works without it.";
 
         static ParticleSystem BuildSparkles(Transform parent, Material mat)
         {

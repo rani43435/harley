@@ -34,7 +34,7 @@ namespace Harley
 
         void Start()
         {
-            if (!brain) brain = FindFirstObjectByType<CompanionBrain>();
+            if (!brain) brain = FindAnyObjectByType<CompanionBrain>();
             if (!voice && brain) voice = brain.voice;
             if (!input && brain) input = brain.interaction;
             if (!screen && brain) screen = brain.eyes as ScreenEyes;
@@ -139,7 +139,7 @@ namespace Harley
 
         static void EnsureEventSystem()
         {
-            if (EventSystem.current != null || FindFirstObjectByType<EventSystem>() != null) return;
+            if (EventSystem.current != null || FindAnyObjectByType<EventSystem>() != null) return;
             var es = new GameObject("EventSystem", typeof(EventSystem));
 #if ENABLE_INPUT_SYSTEM
             es.AddComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();

@@ -21,12 +21,14 @@ namespace Harley
         public abstract bool CanSee { get; }
         /// <summary>Base64 JPEG of what Harley sees right now, or null.</summary>
         public abstract string CaptureJpegBase64();
+        /// <summary>Extra words about the last picture for Harley's prompt (e.g. which web page). Empty if none.</summary>
+        public virtual string ViewNote => "";
 
         RenderTexture _rt;
         Texture2D _readback;
 
         /// <summary>Downscales any texture and encodes it as base64 JPEG.</summary>
-        protected string EncodeTexture(Texture src)
+        protected string EncodeTexture(Texture src, bool flipY = false)
         {
             if (src == null || src.width <= 0 || src.height <= 0) return null;
 
@@ -42,7 +44,8 @@ namespace Harley
                 _readback = new Texture2D(w, h, TextureFormat.RGB24, false);
             }
 
-            Graphics.Blit(src, _rt);
+            if (flipY) Graphics.Blit(src, _rt, new Vector2(1f, -1f), new Vector2(0f, 1f));
+            else Graphics.Blit(src, _rt);
             var prev = RenderTexture.active;
             RenderTexture.active = _rt;
             _readback.ReadPixels(new Rect(0, 0, w, h), 0, 0);

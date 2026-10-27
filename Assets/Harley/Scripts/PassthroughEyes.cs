@@ -26,7 +26,7 @@ namespace Harley
 
         void Reset() { maxSize = 512; jpegQuality = 70; }
 
-        Texture SourceTexture()
+        protected Texture SourceTexture()
         {
             if (passthroughCameraAccess != null && passthroughCameraAccess.isActiveAndEnabled)
             {

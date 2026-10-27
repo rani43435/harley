@@ -28,6 +28,8 @@ namespace Harley
         public CompanionSounds sounds;
         [Tooltip("Find Meta Voice SDK dictation and TTS in the scene and connect them.")]
         public bool autoConnectVoiceSDK = true;
+        [Tooltip("Free voice with a wit.ai token (set Wit Token in the config). Added automatically.")]
+        public WitSpeech wit;
 
         [Header("Speech to text (manual wiring, optional)")]
         public UnityEvent onStartListening = new UnityEvent();
@@ -57,8 +59,12 @@ namespace Harley
         /// <summary>0..1 how open the mouth should be right now.</summary>
         public float TalkAmount { get; private set; }
         /// <summary>True when a real text-to-speech voice is connected.</summary>
-        public bool HasTts => _autoTts || (onSpeak != null && onSpeak.GetPersistentEventCount() > 0);
-        public bool HasDictation => _autoDictation || (onStartListening != null && onStartListening.GetPersistentEventCount() > 0);
+        public bool HasTts => _autoTts || (onSpeak != null && onSpeak.GetPersistentEventCount() > 0) || WitSpeaks;
+        public bool HasDictation => _autoDictation || (onStartListening != null && onStartListening.GetPersistentEventCount() > 0) || WitListens;
+        bool WitListens => wit != null && wit.CanListen && !_autoDictation;
+        bool WitSpeaks => wit != null && wit.CanSpeak && !_autoTts;
+        /// <summary>Microphone level 0..1 while listening (Wit only).</summary>
+        public float MicLevel => wit != null && wit.IsRecording ? wit.Level : 0f;
 
         float _listenStarted, _micStoppedAt, _listenEndedAt = -999f;
         float _speakEndsAt, _speakStarted, _speakDuration;
@@ -96,11 +102,61 @@ namespace Harley
         {
             if (head == null && Camera.main != null) head = Camera.main.transform;
             if (autoConnectVoiceSDK) AutoConnect();
+            ConnectWit();
 #if UNITY_ANDROID && !UNITY_EDITOR
             // Speech-to-text needs the microphone: ask once, up front.
             if (HasDictation && !UnityEngine.Android.Permission.HasUserAuthorizedPermission(UnityEngine.Android.Permission.Microphone))
                 UnityEngine.Android.Permission.RequestUserPermission(UnityEngine.Android.Permission.Microphone);
 #endif
+        }
+
+        // ---------- Wit (free voice, no SDK) ----------
+
+        void ConnectWit()
+        {
+            if (!wit) wit = GetComponent<WitSpeech>();
+            if (!wit) wit = gameObject.AddComponent<WitSpeech>();
+            wit.config = config;
+            wit.Transcribed += OnWitTranscribed;
+            wit.Failed += OnWitFailed;
+            wit.SpeechStarted += () => { if (_witSpeaking) OnTtsStarted(); };
+            wit.SpeechFinished += () => { if (_witSpeaking) { _witSpeaking = false; OnTtsFinished(); } };
+            if (WitSpeaks && ttsAudio == null) ttsAudio = wit.output;
+            if (wit.HasToken) Debug.Log("[Harley] Voice: Wit.ai connected (talk " + (WitListens ? "on" : "off") + ", speech " + (WitSpeaks ? "on" : "off") + ").");
+        }
+
+        bool _witSpeaking;
+
+        void OnWitTranscribed(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                if (IsListening) StopListening();
+                ShowStatus("(I didn't catch that)", 2f);
+                return;
+            }
+            _listenEndedAt = Time.time; // fresh: the transcript is for this Talk
+            ReceiveTranscript(text);
+        }
+
+        void OnWitFailed(string why)
+        {
+            if (IsListening) { IsListening = false; ListeningChanged?.Invoke(false); }
+            if (_witSpeaking)
+            {
+                // No voice: fall back to the babble voice so Harley still "talks".
+                _witSpeaking = false;
+                if (sounds != null && IsSpeaking && subtitle != null)
+                {
+                    _speakDuration = Mathf.Max(0.8f, sounds.Babble(subtitle.text, Emotion.Neutral) + 0.15f);
+                    _babbling = true;
+                    _speakStarted = Time.time;
+                    _speakEndsAt = Time.time + _speakDuration;
+                    _ttsReportsTiming = false;
+                    return;
+                }
+            }
+            ShowStatus("(" + why + ")", 3f);
         }
 
         // ---------- Voice SDK auto-connect ----------
@@ -188,6 +244,7 @@ namespace Harley
             _dots = true;
             sounds?.Play(Sfx.Ding, 1f, 0.6f);
             if (_autoDictation) InvokeSafe(_dictActivate, _dictation);
+            else if (WitListens) wit.StartRecording();
             onStartListening?.Invoke();
             ListeningChanged?.Invoke(true);
         }
@@ -198,9 +255,10 @@ namespace Harley
             IsListening = false;
             _listenEndedAt = Time.time;
             if (_autoDictation) InvokeSafe(_dictDeactivate, _dictation);
+            if (wit != null && wit.IsRecording) { ShowText("...", partialColor, false); _dots = true; wit.StopAndTranscribe(); }
             onStopListening?.Invoke();
             ListeningChanged?.Invoke(false);
-            _subtitleHideAt = Time.time + 0.6f;
+            _subtitleHideAt = Time.time + (wit != null && (wit.IsTranscribing || _dots) ? 6f : 0.6f);
         }
 
         /// <summary>Dictation's "full transcription" lands here.</summary>
@@ -208,7 +266,7 @@ namespace Harley
         {
             // Only while listening, or just after (the final words can arrive a moment after the mic closes).
             bool was = IsListening;
-            if (!was && Time.time - _listenEndedAt > 3f) return;
+            if (!was && Time.time - _listenEndedAt > 8f) return;
 
             IsListening = false;
             _listenEndedAt = Time.time;
@@ -252,6 +310,7 @@ namespace Harley
             if (HasTts && !preferBabble)
             {
                 if (_autoTts) InvokeSafe(_ttsSpeak, _tts, text);
+                else if (WitSpeaks) { _witSpeaking = true; wit.Speak(text); _speakDuration += 4f; } // + time to fetch the audio
                 onSpeak?.Invoke(text);
             }
             else if (sounds != null && (config == null || config.babble))
@@ -272,6 +331,7 @@ namespace Harley
             IsSpeaking = false;
             if (_babbling) sounds?.StopBabble();
             if (_autoTts) InvokeSafe(_ttsStop, _tts);
+            if (_witSpeaking) { _witSpeaking = false; wit.StopSpeaking(); }
             onStopSpeaking?.Invoke();
             _subtitleHideAt = Time.time + 0.5f;
         }
@@ -307,7 +367,13 @@ namespace Harley
         {
             float t = Time.time;
 
-            if (IsListening && t - _listenStarted > listenTimeout) StopListening();
+            float timeout = wit != null && wit.IsRecording ? wit.maxSeconds + 1f : listenTimeout;
+            if (IsListening && t - _listenStarted > timeout) StopListening();
+            if (IsListening && wit != null && !wit.IsRecording && wit.IsTranscribing && !_autoDictation)
+            {   // Wit finished recording on its own (you stopped talking): wait for the words
+                IsListening = false; _listenEndedAt = t; ListeningChanged?.Invoke(false);
+                ShowText("...", partialColor, false); _dots = true; _subtitleHideAt = t + 6f;
+            }
             if (IsListening && _micStoppedAt > 0f && t - _micStoppedAt > 2.5f) StopListening(); // mic closed, nothing came
 
             if (IsSpeaking && t >= _speakEndsAt)
@@ -355,7 +421,7 @@ namespace Harley
             SetSubtitleAlpha(_subtitleAlpha);
 
             // Listening dots until the first words arrive
-            if (_dots && !IsListening) _dots = false;
+            if (_dots && !IsListening && !(wit != null && wit.IsTranscribing)) _dots = false;
             if (_dots && subtitle != null)
             {
                 int dots = 1 + (int)(t * 3f) % 3;
