@@ -47,6 +47,21 @@ namespace Harley
   ""additionalProperties"": false
 }";
 
+        /// <summary>The newest message comes with a picture and sounds like it's about what the player sees.</summary>
+        static bool NeedsEyes(List<ChatTurn> turns)
+        {
+            if (turns == null || turns.Count == 0) return false;
+            var last = turns[turns.Count - 1];
+            if (!last.fromUser || string.IsNullOrEmpty(last.jpegBase64)) return false;
+            string t = (last.text ?? "").ToLowerInvariant();
+            if (t.StartsWith("[event optional]")) return true; // glancing around on her own
+            string[] words = { "see", "look", "this", "that", "what is", "what's", "watch", "screen", "video", "read", "color", "colour", "wearing", "here",
+                               "شوف", "بتشوف", "شايف", "شايفة", "هاد", "هاي", "هيدا", "شو هو", "شو هاد", "شاشة", "فيديو", "اقرأ", "اقري", "لون", "لابس", "بنحضر", "عم نحضر", "قدامي",
+                               "sieh", "schau", "was ist das", "bildschirm" };
+            foreach (var w in words) if (t.Contains(w)) return true;
+            return false;
+        }
+
         static object _schema;
         static object Schema => _schema ??= MiniJson.Parse(ReplySchema);
 
@@ -57,6 +72,34 @@ namespace Harley
         public IEnumerator Send(string system, List<ChatTurn> turns, CompanionTools tools,
                                 Action<string> onText, Action<string> onError, Action<string> onToolStart = null)
         {
+            if (GroqClient.Has(config))
+            {
+                // Groq answers fast with big free limits; Gemini only when Harley really needs to look at something
+                Busy = true;
+                try
+                {
+                    bool hasGemini = !string.IsNullOrWhiteSpace(config.geminiApiKey);
+                    bool look = hasGemini && NeedsEyes(turns);
+                    string err = null; bool done = false;
+                    if (look)
+                    {
+                        yield return GeminiClient.Send(config, system, turns, tools, t => { done = true; onText?.Invoke(t); }, e => err = e, onToolStart);
+                        if (done) yield break;
+                        Debug.LogWarning("[Harley] Gemini couldn't look (" + err + "), Groq answers without the picture.");
+                    }
+                    err = null;
+                    yield return GroqClient.Send(config, system, turns, tools, t => { done = true; onText?.Invoke(t); }, e => err = e, onToolStart);
+                    if (done) yield break;
+                    if (hasGemini && !look)
+                    {
+                        Debug.LogWarning("[Harley] Groq failed (" + err + "), trying Gemini.");
+                        yield return GeminiClient.Send(config, system, turns, tools, onText, onError, onToolStart);
+                    }
+                    else onError?.Invoke(err);
+                }
+                finally { Busy = false; }
+                yield break;
+            }
             if (config != null && config.provider == AiProvider.Gemini)
             {
                 Busy = true;
@@ -126,6 +169,16 @@ namespace Harley
         /// </summary>
         public IEnumerator SearchWeb(string query, Action<string> done, string fallbackCity = "", string fallbackCountry = "")
         {
+            if (GroqClient.Has(config))
+            {
+                string c = !string.IsNullOrWhiteSpace(config.homeCity) ? config.homeCity : fallbackCity;
+                string found = null;
+                yield return GroqClient.Search(config, query, c, r => found = r);
+                if (found != null) { done?.Invoke(found); yield break; }
+                if (!string.IsNullOrWhiteSpace(config.geminiApiKey)) { yield return GeminiClient.Search(config, query, c, done); yield break; }
+                done?.Invoke("Search failed.");
+                yield break;
+            }
             if (config != null && config.provider == AiProvider.Gemini)
             {
                 string c = !string.IsNullOrWhiteSpace(config.homeCity) ? config.homeCity : fallbackCity;

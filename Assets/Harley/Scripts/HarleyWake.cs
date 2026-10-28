@@ -193,6 +193,7 @@ namespace Harley
             if (PlayerPrefs.GetString("harley.wake.day", "") != day) { PlayerPrefs.SetString("harley.wake.day", day); PlayerPrefs.SetInt("harley.wake.n", 0); }
             int n = PlayerPrefs.GetInt("harley.wake.n", 0);
             int max = config != null ? config.wakeChecksPerDay : 120;
+            if (GroqClient.Has(config)) max = Mathf.Max(max, 600); // Whisper on Groq allows ~2000 a day
             if (n >= max) return false;
             PlayerPrefs.SetInt("harley.wake.n", n + 1);
             return true;

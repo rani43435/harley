@@ -37,11 +37,16 @@ namespace Harley
 
         public bool HasToken => config != null && !string.IsNullOrWhiteSpace(config.witToken);
         /// <summary>No Wit token, but a Gemini key: Gemini does the listening (and the voice, while it works).</summary>
-        public bool UsesGemini => !HasToken && config != null && config.provider == AiProvider.Gemini && !string.IsNullOrWhiteSpace(config.geminiApiKey);
-        public bool CanListen => HasToken || UsesGemini;
-        public bool CanSpeak => config != null && config.witVoiceOutput && (HasToken || (UsesGemini && config.geminiVoiceOutput && !_geminiVoiceBroken));
-        bool _geminiVoiceBroken;
-        int _geminiVoiceFails;
+        /// <summary>No Wit token: Groq (Whisper + Orpheus) does the hearing and the voice, Gemini as the backup.</summary>
+        public bool UsesGroq => !HasToken && GroqClient.Has(config);
+        bool HasGeminiKey => config != null && !string.IsNullOrWhiteSpace(config.geminiApiKey);
+        public bool UsesGemini => !HasToken && !UsesGroq && HasGeminiKey;
+        bool CloudVoice => !HasToken && (UsesGroq || HasGeminiKey);
+        public bool CanListen => HasToken || UsesGroq || UsesGemini;
+        public bool CanSpeak => config != null && config.witVoiceOutput &&
+                                (HasToken || (CloudVoice && config.geminiVoiceOutput && Time.unscaledTime >= _cloudVoiceRestAt));
+        // When every free voice is used up, rest a while (Harley babbles meanwhile) and then try again: it never stays silent for good
+        float _cloudVoiceRestAt, _groqVoiceRestAt, _geminiVoiceRestAt;
         public bool IsRecording { get; private set; }
         public bool IsTranscribing { get; private set; }
         /// <summary>0..1 microphone level while recording.</summary>
@@ -146,7 +151,7 @@ namespace Harley
 
         IEnumerator Dictate(byte[] pcm)
         {
-            if (UsesGemini) { yield return DictateGemini(pcm); yield break; }
+            if (UsesGroq || UsesGemini) { yield return DictateCloud(pcm); yield break; }
             IsTranscribing = true;
             using (var req = new UnityWebRequest($"{Api}/dictation?v={ApiVersion}", UnityWebRequest.kHttpVerbPOST))
             {
@@ -171,7 +176,12 @@ namespace Harley
         public IEnumerator TranscribeOnce(byte[] pcm, Action<string> done)
         {
             string text = null;
-            if (UsesGemini)
+            if (UsesGroq)
+            {
+                yield return GroqClient.Transcribe(config, pcm, s => text = s, e => text = null);
+                if (text == null && HasGeminiKey) yield return GeminiClient.Transcribe(config, pcm, s => text = s, e => text = null);
+            }
+            else if (UsesGemini)
             {
                 yield return GeminiClient.Transcribe(config, pcm, s => text = s, e => text = null);
             }
@@ -191,11 +201,21 @@ namespace Harley
             done(text);
         }
 
-        IEnumerator DictateGemini(byte[] pcm)
+        IEnumerator DictateCloud(byte[] pcm)
         {
             IsTranscribing = true;
             string text = null, error = null;
-            yield return GeminiClient.Transcribe(config, pcm, s => text = s, e => error = e);
+            if (UsesGroq)
+            {
+                yield return GroqClient.Transcribe(config, pcm, s => text = s, e => error = e);
+                if (error != null && HasGeminiKey)
+                {
+                    Debug.LogWarning("[Harley] Groq hearing failed, trying Gemini: " + error);
+                    error = null;
+                    yield return GeminiClient.Transcribe(config, pcm, s => text = s, e => error = e);
+                }
+            }
+            else yield return GeminiClient.Transcribe(config, pcm, s => text = s, e => error = e);
             IsTranscribing = false;
             if (error != null)
             {
@@ -263,20 +283,27 @@ namespace Harley
 
         IEnumerator SpeakRoutine(string text, int id)
         {
-            if (UsesGemini)
+            if (CloudVoice)
             {
                 AudioClip clip = null; string err = null;
-                yield return GeminiClient.Speak(config, text, c => clip = c, e => err = e);
+                float now = Time.unscaledTime;
+                if (UsesGroq && now >= _groqVoiceRestAt)
+                {
+                    yield return GroqClient.Speak(config, text, c => clip = c, e => err = e);
+                    if (clip == null) { _groqVoiceRestAt = Time.unscaledTime + (err != null && err.Contains("429") ? 600f : 60f); Debug.LogWarning("[Harley] Groq voice: " + err); }
+                }
+                if (clip == null && HasGeminiKey && Time.unscaledTime >= _geminiVoiceRestAt && id == _speakId)
+                {
+                    yield return GeminiClient.Speak(config, text, c => clip = c, e => err = e);
+                    if (clip == null) { _geminiVoiceRestAt = Time.unscaledTime + (err != null && err.Contains("no Gemini voice") ? 99999f : 600f); Debug.LogWarning("[Harley] Gemini voice: " + err); }
+                }
                 if (id != _speakId) yield break;
                 if (clip == null)
                 {
-                    // Free voice quota is small: after a few misses, stop trying this session (Harley babbles instead)
-                    if (++_geminiVoiceFails >= 3 || (err != null && err.Contains("no Gemini voice"))) _geminiVoiceBroken = true;
-                    Debug.LogWarning("[Harley] Gemini voice: " + err);
+                    _cloudVoiceRestAt = Mathf.Min(_groqVoiceRestAt, _geminiVoiceRestAt);
                     Failed?.Invoke("voice: " + err);
                     yield break;
                 }
-                _geminiVoiceFails = 0;
                 output.clip = clip;
                 output.volume = Mathf.Clamp01(config.voiceVolume);
                 output.Play();

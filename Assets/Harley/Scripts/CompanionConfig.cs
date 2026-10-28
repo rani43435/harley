@@ -14,8 +14,17 @@ namespace Harley
         [Tooltip("Which AI is Harley's brain. Gemini has a free tier (aistudio.google.com); Claude needs paid API credits.")]
         public AiProvider provider = AiProvider.Claude;
 
+        [Header("Groq (free, fast, big limits: console.groq.com > API Keys)")]
+        [Tooltip("With a Groq key Harley thinks with Groq (fast, ~1000 a day), hears with Whisper and speaks with Orpheus. Gemini is still used to look at things.")]
+        public string groqApiKey = "";
+        public string groqModel = "openai/gpt-oss-120b";
+        [Tooltip("English voice: autumn, diana, hannah, austin, daniel, troy")]
+        public string groqVoiceEnglish = "hannah";
+        [Tooltip("Arabic voice: noura, lulwa, aisha, abdullah, fahad, sultan")]
+        public string groqVoiceArabic = "noura";
+
         /// <summary>True when the chosen AI has a key.</summary>
-        public bool HasBrainKey => !string.IsNullOrWhiteSpace(provider == AiProvider.Gemini ? geminiApiKey : apiKey) &&
+        public bool HasBrainKey => !string.IsNullOrWhiteSpace(groqApiKey) || !string.IsNullOrWhiteSpace(provider == AiProvider.Gemini ? geminiApiKey : apiKey) &&
                                    (provider == AiProvider.Gemini || apiKey.Trim().StartsWith("sk-"));
 
         [Header("Gemini (free tier: aistudio.google.com > Get API key)")]
