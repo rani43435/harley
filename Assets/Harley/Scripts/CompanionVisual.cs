@@ -36,6 +36,10 @@ namespace Harley
         [Header("Size")]
         public float haloRadius = 0.07f;
         public float haloHeight = 0.125f;
+        [Tooltip("How far the hands travel in gestures (wave, dance, listening). The robot body uses bigger moves.")]
+        public float gestureScale = 1f;
+        [Tooltip("Where the left hand goes while listening (cupped near the head), relative to its rest spot.")]
+        public Vector3 listenHandOffset = new Vector3(-0.005f, 0.06f, -0.01f);
 
         public Emotion CurrentEmotion => Time.time < _overrideUntil ? _overrideEmotion : _baseEmotion;
 
@@ -301,20 +305,20 @@ namespace Harley
             {
                 _waveT += dt;
                 float up = Mathf.Clamp01(_waveT * 5f) * Mathf.Clamp01((1.8f - _waveT) * 5f);
-                r = Vector3.Lerp(r, _handRBase + new Vector3(0.03f + Mathf.Sin(_waveT * 16f) * 0.022f, 0.11f, 0.02f), up);
+                r = Vector3.Lerp(r, _handRBase + new Vector3(0.03f + Mathf.Sin(_waveT * 16f) * 0.022f, 0.11f * gestureScale, 0.02f), up);
                 if (_waveT > 1.8f) _waveT = -1f;
             }
 
             if (_danceT >= 0f)
             {
                 float a = Mathf.Sin(_danceT * Mathf.PI * 2f * 2f);
-                l += new Vector3(0f, 0.05f + a * 0.03f, 0f);
-                r += new Vector3(0f, 0.05f - a * 0.03f, 0f);
+                l += new Vector3(0f, (0.05f + a * 0.03f) * gestureScale, 0f);
+                r += new Vector3(0f, (0.05f - a * 0.03f) * gestureScale, 0f);
             }
 
             if (_listening) // hands near "ears"
             {
-                l = Vector3.Lerp(l, _handLBase + new Vector3(-0.005f, 0.06f, -0.01f), 0.6f);
+                l = Vector3.Lerp(l, _handLBase + listenHandOffset, 0.6f);
             }
 
             float f = 1f - Mathf.Exp(-14f * dt);

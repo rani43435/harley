@@ -61,6 +61,7 @@ namespace Harley
 
             _kind = "camera";
             int open = WebPanel.Windows.Count;
+            if (HarleyWorld.Immersive) { _note = ""; return null; } // in Harley's world the real room isn't visible
             _note = open > 0 ? $"They also have {open} browser window{(open > 1 ? "s" : "")} open in the room, but they are not looking at it right now." : "";
             maxSize = _cameraMaxSize;
             return base.CaptureJpegBase64();

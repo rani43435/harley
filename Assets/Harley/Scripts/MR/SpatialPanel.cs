@@ -17,13 +17,14 @@ namespace Harley
         public const float PixelsPerMeter = 1000f;
 
         [Header("Look")]
-        public Color background = new Color(0.078f, 0.063f, 0.110f, 0.92f); // #14101C
-        public Color button = new Color(0.141f, 0.110f, 0.220f, 1f);          // #241C38
-        public Color buttonHover = new Color(0.22f, 0.17f, 0.34f, 1f);
+        // Calm dark glass, like Quest's own windows, with Harley's purple as the accent
+        public Color background = new Color(0.105f, 0.105f, 0.125f, 0.95f);
+        public Color button = new Color(1f, 1f, 1f, 0.09f);
+        public Color buttonHover = new Color(1f, 1f, 1f, 0.16f);
         public Color primary = new Color(0.545f, 0.361f, 0.965f, 1f);         // #8B5CF6
         public Color on = new Color(0.086f, 0.639f, 0.290f, 1f);              // #16A34A
-        public Color text = new Color(0.925f, 0.910f, 0.969f, 1f);            // #ECE8F7
-        public Color muted = new Color(0.612f, 0.584f, 0.710f, 1f);           // #9C95B5
+        public Color text = new Color(0.96f, 0.96f, 0.98f, 1f);
+        public Color muted = new Color(0.66f, 0.66f, 0.72f, 1f);
 
         public Transform head;
         [Tooltip("Height of the grab bar under the panel, meters.")]
@@ -86,6 +87,7 @@ namespace Harley
 
             // Card
             var card = Box(Root, "Background", background);
+            card.pixelsPerUnitMultiplier = 0.55f; // big soft corners
             Place(card.rectTransform, Vector2.zero, Vector2.one, new Vector2(0, barHeight * PixelsPerMeter), Vector2.zero);
 
             // Grab bar under the card

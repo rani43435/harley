@@ -55,7 +55,8 @@ public class HarleyWebView {
     private View fullscreenView;
     private WebChromeClient.CustomViewCallback fullscreenCallback;
     private long downTime;
-    private String normalUa;
+    private String normalUa, desktopUa;
+    private volatile int identity = 0; // 0 phone (normal), 1 desktop, 2 TV for youtube.com/tv
 
     /** youtube.com/tv only opens for TVs: same Samsung TV browser identity as the Ambient Video app. */
     private static final String TV_UA = "Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) 76.0.3809.146/6.0 TV Safari/537.36";
@@ -65,12 +66,13 @@ public class HarleyWebView {
     /** Switch the browser identity before loading a page (TV for YouTube TV, normal otherwise). */
     private void uaFor(String u) {
         if (web == null) return;
-        String want = isTv(u) ? TV_UA : normalUa;
+        String want = isTv(u) ? TV_UA : identity == 1 && desktopUa != null ? desktopUa : normalUa;
         if (!want.equals(web.getSettings().getUserAgentString())) web.getSettings().setUserAgentString(want);
     }
 
-    public HarleyWebView(final Activity activity, int width, int height, final int dpi, final String startUrl) {
+    public HarleyWebView(final Activity activity, int width, int height, final int dpi, final String startUrl, int identity) {
         this.activity = activity;
+        this.identity = identity;
         this.width = width;
         this.height = height;
         this.frame = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder());
@@ -112,6 +114,9 @@ public class HarleyWebView {
         s.setSupportMultipleWindows(false);
         s.setJavaScriptCanOpenWindowsAutomatically(false);
         normalUa = s.getUserAgentString();
+        // Same Chrome version, desktop identity (sites like WhatsApp Web need it)
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("Chrome/[\\d.]+").matcher(normalUa);
+        desktopUa = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) " + (m.find() ? m.group() : "Chrome/130.0.0.0") + " Safari/537.36";
         web.setInitialScale(0);
 
         web.setWebViewClient(new WebViewClient() {
@@ -222,6 +227,9 @@ public class HarleyWebView {
     }
 
     public boolean isTvMode() { return isTv(url); }
+
+    /** 0 phone, 1 desktop. Applies to the next page load. */
+    public void setIdentity(int id) { identity = id; }
 
     /** Presses a key on the page (YouTube TV is driven by arrows, Enter and Back). */
     public void key(final int keyCode) {

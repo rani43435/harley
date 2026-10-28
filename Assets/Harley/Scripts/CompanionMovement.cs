@@ -47,6 +47,8 @@ namespace Harley
         public bool detectFloor = true;
         [Tooltip("Radius of the character, used to sit on surfaces and keep off walls.")]
         public float bodyRadius = 0.1f;
+        [Tooltip("Extra height above a surface for a body under the head (robot legs). 0 = just the round head.")]
+        public float standHeight = 0f;
 
         public CompanionAction CurrentAction { get; private set; } = CompanionAction.Follow;
         public override Vector3 Velocity => _vel;
@@ -121,6 +123,25 @@ namespace Harley
                     break;
             }
         }
+
+        /// <summary>Fly to a point (games: fetching a ball), looking at it. Ends after the given seconds, then follows again.</summary>
+        public void FlyTo(Vector3 point, float seconds, Vector3? lookAt = null)
+        {
+            if (head == null || IsHeld || IsFlying) return;
+            CurrentAction = CompanionAction.Stay;
+            _sitting = false;
+            _skipLineOfSight = true;
+            _waypoints.Clear();
+            _place = "";
+            point.y = Mathf.Max(point.y, floorY + (bodyRadius * 0.92f + standHeight));
+            _target = point;
+            _flyLook = lookAt ?? point;
+            _flyLookUntil = Time.time + seconds;
+            _actionUntil = Time.time + seconds;
+        }
+
+        Vector3 _flyLook;
+        float _flyLookUntil;
 
         /// <summary>Stay put right here for a while (after being placed by hand).</summary>
         public void StayHere(float seconds)
@@ -211,7 +232,7 @@ namespace Harley
                     break;
 
                 case CompanionAction.Sit:
-                    _target = _sitSpot + Vector3.up * bodyRadius * 0.92f;
+                    _target = _sitSpot + Vector3.up * (bodyRadius * 0.92f + standHeight);
                     _sitting = Vector3.Distance(transform.position, _target) < 0.05f;
                     if (Vector3.Distance(Flat3(head.position), Flat3(_sitSpot)) > 2.8f) Perform(CompanionAction.Follow);
                     break;
@@ -239,6 +260,7 @@ namespace Harley
                 }
 
                 default: // Stay, Spin, Dance, Wave: hold position
+                    if (Time.time < _flyLookUntil) { _lookPoint = _flyLook; smooth = smoothTime * 0.7f; }
                     break;
             }
 
@@ -284,7 +306,7 @@ namespace Harley
             }
             else pos += step;
 
-            float minY = floorY + bodyRadius * 0.92f;
+            float minY = floorY + (bodyRadius * 0.92f + standHeight);
             if (pos.y < minY)
             {
                 pos.y = minY;
@@ -402,7 +424,7 @@ namespace Harley
                     // Land on top of it (couch, table, bed, shelf).
                     _goSeat = true;
                     _skipLineOfSight = true;
-                    _goTarget = t.top + Vector3.up * bodyRadius * 0.92f;
+                    _goTarget = t.top + Vector3.up * (bodyRadius * 0.92f + standHeight);
                     return;
                 }
                 // Small or tall things (lamp, plant): hover beside, facing it.
@@ -470,7 +492,7 @@ namespace Harley
                     t = head.position + d / len * Mathf.Max(personalSpace, hit.distance - bodyRadius);
             }
 
-            t.y = Mathf.Max(t.y, floorY + bodyRadius * 0.92f);
+            t.y = Mathf.Max(t.y, floorY + (bodyRadius * 0.92f + standHeight));
             return t;
         }
 

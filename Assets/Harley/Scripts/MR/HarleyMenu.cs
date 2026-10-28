@@ -24,7 +24,7 @@ namespace Harley
         protected override void Awake()
         {
             base.Awake();
-            size = new Vector2(0.46f, 0.33f);
+            size = new Vector2(0.48f, 0.47f);
         }
 
         protected override void Start()
@@ -36,35 +36,92 @@ namespace Harley
             else gameObject.SetActive(false);
         }
 
+        readonly PanelButton[] _toolButtons = new PanelButton[5];
+        PanelButton _world, _option;
+
         protected override void Build()
         {
             var c = Content;
+            const float L = 22f, W = 436f;
             var title = Label(c, (brain != null && brain.config != null ? brain.config.companionName : "Harley"), 30, text, TextAlignmentOptions.Left);
             title.fontStyle = FontStyles.Bold;
-            PlaceTL(title.rectTransform, 22, 14, 300, 38);
+            PlaceTL(title.rectTransform, L, 14, 300, 38);
 
             _status = Label(c, "", 16, muted, TextAlignmentOptions.Left);
-            PlaceTL(_status.rectTransform, 22, 52, 416, 26);
+            PlaceTL(_status.rectTransform, L, 52, W, 26);
 
-            float y = 88f;
+            // Talk / Type
+            float y = 86f;
             _talk = AddButton(c, "Talk", Talk, primary, 24);
-            PlaceTL(_talk.rect, 20, y, 205, 56);
-            PlaceTL(AddButton(c, "Type", Type, null, 24).rect, 235, y, 205, 56);
+            PlaceTL(_talk.rect, L, y, 213, 54);
+            PlaceTL(AddButton(c, "Type", Type, null, 24).rect, L + 223, y, 213, 54);
 
-            y += 66f;
-            PlaceTL(AddButton(c, "Browser", () => OpenWeb("https://www.google.com"), null, 22).rect, 20, y, 205, 48);
-            PlaceTL(AddButton(c, "YouTube", () => OpenWeb("https://www.youtube.com/tv"), null, 22).rect, 235, y, 205, 48);
+            // Apps / Room-World
+            y += 64f;
+            PlaceTL(AddButton(c, "Apps", () => { LauncherPanel.Show(head); gameObject.SetActive(false); }, null, 22).rect, L, y, 213, 48);
+            _world = AddButton(c, HarleyWorld.Immersive ? "Back to my room" : "Harley's world", ToggleWorld, null, 20);
+            PlaceTL(_world.rect, L + 223, y, 213, 48);
 
-            y += 58f;
+            // Play tools
+            y += 60f;
+            var playLabel = Label(c, "Play", 15, muted, TextAlignmentOptions.Left);
+            PlaceTL(playLabel.rectTransform, L, y, 100, 20);
+            y += 22f;
+            string[] names = { "Draw", "Add", "Break", "Cover", "Fetch" };
+            float bw = (W - 4 * 6f) / 5f;
+            for (int i = 0; i < 5; i++)
+            {
+                var tool = (HarleyTools.Tool)(i + 1);
+                _toolButtons[i] = AddButton(c, names[i], () => PickTool(tool), null, 17);
+                PlaceTL(_toolButtons[i].rect, L + i * (bw + 6f), y, bw, 42);
+            }
+            y += 48f;
+            _option = AddButton(c, "Colour", NextOption, null, 16);
+            PlaceTL(_option.rect, L, y, 213, 36);
+            PlaceTL(AddButton(c, "Clear all", () => HarleyTools.Instance?.ClearAll(), null, 16).rect, L + 223, y, 213, 36);
+
+            // Settings
+            y += 50f;
             var cfg = brain != null ? brain.config : null;
-            PlaceTL(AddToggle(c, "Follow me", Pref(PrefFollow, true), v => { Save(PrefFollow, v); Follow(v); }).rect, 20, y, 133, 44);
-            PlaceTL(AddToggle(c, "Comments", Pref(PrefComments, cfg == null || cfg.proactiveComments), v => { Save(PrefComments, v); if (cfg) cfg.proactiveComments = v; }).rect, 163, y, 134, 44);
-            PlaceTL(AddToggle(c, "Voice", Pref(PrefVoice, cfg == null || cfg.witVoiceOutput), v => { Save(PrefVoice, v); if (cfg) cfg.witVoiceOutput = v; }).rect, 307, y, 133, 44);
+            PlaceTL(AddToggle(c, "Follow me", Pref(PrefFollow, true), v => { Save(PrefFollow, v); Follow(v); }).rect, L, y, 140, 42);
+            PlaceTL(AddToggle(c, "Comments", Pref(PrefComments, cfg == null || cfg.proactiveComments), v => { Save(PrefComments, v); if (cfg) cfg.proactiveComments = v; }).rect, L + 148, y, 140, 42);
+            PlaceTL(AddToggle(c, "Voice", Pref(PrefVoice, cfg == null || cfg.witVoiceOutput), v => { Save(PrefVoice, v); if (cfg) cfg.witVoiceOutput = v; }).rect, L + 296, y, 140, 42);
 
-            y += 54f;
-            PlaceTL(AddButton(c, "Come here", () => brain?.movement?.Perform(CompanionAction.ComeClose), null, 19).rect, 20, y, 133, 44);
-            PlaceTL(AddButton(c, "Forget me", ForgetMe, null, 19).rect, 163, y, 134, 44);
-            PlaceTL(AddButton(c, "Hide", () => gameObject.SetActive(false), null, 19).rect, 307, y, 133, 44);
+            y += 50f;
+            PlaceTL(AddButton(c, "Come here", () => brain?.movement?.Perform(CompanionAction.ComeClose), null, 18).rect, L, y, 140, 42);
+            PlaceTL(AddButton(c, "Forget me", ForgetMe, null, 18).rect, L + 148, y, 140, 42);
+            PlaceTL(AddButton(c, "Close", () => gameObject.SetActive(false), null, 18).rect, L + 296, y, 140, 42);
+        }
+
+        void PickTool(HarleyTools.Tool t)
+        {
+            var tools = HarleyTools.Instance;
+            if (tools == null) return;
+            tools.SetTool(t);
+            gameObject.SetActive(false); // out of the way: go play
+            string hint = tools.Current switch
+            {
+                HarleyTools.Tool.Draw => "(Draw: hold the trigger or pinch and move)",
+                HarleyTools.Tool.Add => "(Add: point at a table or the floor and pull the trigger)",
+                HarleyTools.Tool.Break => "(Break: point at something and pull the trigger)",
+                HarleyTools.Tool.Cover => "(Cover: point at furniture to hide it, again to uncover)",
+                HarleyTools.Tool.Fetch => "(Fetch: hold the trigger, swing, let go to throw)",
+                _ => "(Play tools off)"
+            };
+            brain?.voice?.ShowStatus(hint, 4f);
+        }
+
+        void NextOption()
+        {
+            var tools = HarleyTools.Instance;
+            if (tools == null) return;
+            if (tools.Current == HarleyTools.Tool.Add) tools.NextItem(); else tools.NextInk();
+        }
+
+        void ToggleWorld()
+        {
+            HarleyWorld.Instance?.Toggle();
+            gameObject.SetActive(false);
         }
 
         // ---------- actions ----------
@@ -151,6 +208,14 @@ namespace Harley
             else s = "Talk, or just look at Harley to talk.";
             _status.text = s;
             if (_talk != null && _talk.label != null) _talk.label.text = voice != null && voice.IsListening ? "Stop" : "Talk";
+            var tools = HarleyTools.Instance;
+            for (int i = 0; i < _toolButtons.Length; i++)
+                if (_toolButtons[i] != null) _toolButtons[i].baseColor = tools != null && (int)tools.Current == i + 1 ? primary : button;
+            if (_option != null && _option.label != null)
+                _option.label.text = tools != null && tools.Current == HarleyTools.Tool.Add ? "Thing: " + tools.AddItemName : "Colour";
+            if (_option != null && _option.image != null && tools != null && tools.Current != HarleyTools.Tool.Add) _option.baseColor = tools.InkColor * new Color(1, 1, 1, 0.55f);
+            else if (_option != null) _option.baseColor = button;
+            if (_world != null && _world.label != null) _world.label.text = HarleyWorld.Immersive ? "Back to my room" : "Harley's world";
         }
 
         /// <summary>Left controller menu button toggles the menu (runs on the always-active watcher).</summary>

@@ -23,6 +23,8 @@ namespace Harley
         public int pageWidth = 1920, pageHeight = 1080;
         [Tooltip("Bigger = larger text on pages. 300 at 1920 px lays pages out like a 1024 px wide screen, drawn with 1.9x the pixels.")]
         public int pageDpi = 300;
+        [Tooltip("Show the page through a Quest compositor layer: drawn by the headset itself at full sharpness, like Meta's own windows.")]
+        public bool sharpLayer = true;
         [Tooltip("Thumbstick scroll speed, page pixels per second.")]
         public float scrollSpeed = 1400f;
 
@@ -54,12 +56,27 @@ namespace Harley
         AndroidJavaObject _buffer;
 #endif
 
+        /// <summary>The app this window shows (null = plain browser).</summary>
+        public AppCatalog.App App { get; private set; }
+
         /// <summary>Opens a new browser window in front of the player.</summary>
-        public static WebPanel Create(string url, Transform head)
+        public static WebPanel Create(string url, Transform head) => Open(url, null, head);
+
+        /// <summary>Opens an app (from the launcher) as its own app-style window.</summary>
+        public static WebPanel Create(AppCatalog.App app, Transform head)
         {
-            var go = new GameObject("Harley Browser");
+            // One window per app: bring it back instead of opening a second one.
+            foreach (var w in Windows)
+                if (w != null && w.App == app) { w.ShowInFront(1.1f, 0.0f); return w; }
+            return Open(app.url, app, head);
+        }
+
+        static WebPanel Open(string url, AppCatalog.App app, Transform head)
+        {
+            var go = new GameObject(app != null ? app.name : "Harley Browser");
             var p = go.AddComponent<WebPanel>();
             p.startUrl = url;
+            p.App = app;
             p.head = head;
             p.size = new Vector2(1.0f, 0.5625f + ToolbarPx / PixelsPerMeter);
             p.EnsureBuilt();
@@ -74,49 +91,79 @@ namespace Harley
         {
             var c = Content;
             float w = c.rect.width;
+            float y = 9f, h = 36f;
 
-            // Toolbar
-            float x = 10f, y = 8f, h = 36f;
-            PlaceTL(AddButton(c, "Back", Back, null, 18).rect, x, y, 70, h); x += 76;
-            PlaceTL(AddButton(c, "Reload", Reload, null, 18).rect, x, y, 80, h); x += 86;
-            PlaceTL(AddButton(c, "Google", () => Load("https://www.google.com"), null, 18).rect, x, y, 84, h); x += 90;
-            PlaceTL(AddButton(c, "YouTube", () => Load(YouTubeTv), null, 18).rect, x, y, 92, h); x += 98;
+            // Left: back / reload / home (apps)
+            float x = 12f;
+            PlaceTL(AddButton(c, "Back", Back, ghost, 17).rect, x, y, 64, h); x += 68;
+            PlaceTL(AddButton(c, "Reload", Reload, ghost, 17).rect, x, y, 72, h); x += 76;
+            PlaceTL(AddButton(c, "Apps", () => LauncherPanel.Show(head), ghost, 17).rect, x, y, 62, h); x += 70;
 
-            // YouTube TV remote (shown only on youtube.com/tv): thumbstick or these buttons move, OK selects
+            // Right: type / enter / close
+            float right = w - 12f;
+            right -= 40; PlaceTL(AddButton(c, "X", Close, new Color(0.62f, 0.18f, 0.26f, 0.9f), 17).rect, right, y, 40, h); right -= 6;
+            right -= 56; PlaceTL(AddButton(c, "Enter", PressEnter, ghost, 16).rect, right, y, 56, h); right -= 6;
+            right -= 62; PlaceTL(AddButton(c, "Type", TypeText, primary, 17).rect, right, y, 62, h); right -= 10;
+
+            // Middle: an address pill (app name, or the page title) - tap it to go somewhere else
+            float pillW = Mathf.Max(80f, right - x - 4f);
+            var pill = AddButton(c, "", AskAddress, new Color(1f, 1f, 1f, 0.07f), 16);
+            _pill = pill.rect.gameObject;
+            PlaceTL(pill.rect, x, y, pillW, h);
+            if (App != null)
+            {
+                var tile = Box(pill.rect, "Tile", App.color);
+                PlaceTL(tile.rectTransform, 8, 6, 24, 24);
+                var letter = Label(tile.rectTransform, App.letter, 15, Color.white, TextAlignmentOptions.Center);
+                letter.fontStyle = FontStyles.Bold;
+                Place(letter.rectTransform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+            }
+            _titleLabel = pill.label;
+            _titleLabel.alignment = TextAlignmentOptions.Center;
+            _titleLabel.color = muted;
+            _titleLabel.textWrappingMode = TextWrappingModes.NoWrap;
+            Place(_titleLabel.rectTransform, Vector2.zero, Vector2.one, new Vector2(App != null ? 40 : 14, 0), new Vector2(-14, 0));
+
+            // YouTube TV remote (shown only on youtube.com/tv, over the address pill): thumbstick or these buttons
             _tvKeys = new GameObject("TV Keys", typeof(RectTransform));
             _tvKeys.transform.SetParent(c, false);
             var tk = (RectTransform)_tvKeys.transform;
             Place(tk, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
-            float kx = x + 6;
+            float kw = 46f, total = kw * 4 + 60 + 4 * 6;
+            float kx = x + Mathf.Max(0f, (pillW - total) * 0.5f);
             foreach (var (label, code) in new[] { ("<", KeyLeft), ("^", KeyUp), ("v", KeyDown), (">", KeyRight) })
-            { int k = code; PlaceTL(AddButton(tk, label, () => Key(k), null, 22).rect, kx, y, 44, h); kx += 48; }
-            PlaceTL(AddButton(tk, "OK", () => Key(KeyEnter), primary, 18).rect, kx, y, 56, h);
+            { int k = code; PlaceTL(AddButton(tk, label, () => Key(k), ghost, 22).rect, kx, y, kw, h); kx += kw + 6; }
+            PlaceTL(AddButton(tk, "OK", () => Key(KeyEnter), primary, 17).rect, kx, y, 60, h);
             _tvKeys.SetActive(false);
 
-            float right = w - 10f;
-            right -= 44; PlaceTL(AddButton(c, "X", Close, new Color(0.45f, 0.12f, 0.2f, 1f), 18).rect, right, y, 44, h); right -= 6;
-            right -= 54; PlaceTL(AddButton(c, "Go", PressEnter, null, 18).rect, right, y, 54, h); right -= 6;
-            right -= 70; PlaceTL(AddButton(c, "Type", TypeText, primary, 18).rect, right, y, 70, h); right -= 10;
-
-            _titleLabel = Label(c, "", 16, muted, TextAlignmentOptions.Left);
-            _titleLabel.textWrappingMode = TextWrappingModes.NoWrap;
-            PlaceTL(_titleLabel.rectTransform, x + 4, y, Mathf.Max(40, right - x - 4), h);
-
-            // Page
+            // Page, with rounded-feel inset
             var pageGO = new GameObject("Page", typeof(RectTransform), typeof(RawImage));
             pageGO.transform.SetParent(c, false);
             _page = pageGO.GetComponent<RawImage>();
             _page.raycastTarget = false;
-            _page.color = Color.white;
-            _page.uvRect = new Rect(0, 1, 1, -1); // Android rows start at the top
+            _page.uvRect = new Rect(0, 0, 1, 1); // the page is turned the right way up when it's copied in
             Place(_page.rectTransform, Vector2.zero, Vector2.one, new Vector2(0, 0), new Vector2(0, -ToolbarPx));
 
-            _placeholder = Label(_page.rectTransform, "Loading...", 26, new Color(0.3f, 0.3f, 0.35f), TextAlignmentOptions.Center);
+            string loadingText = App != null ? App.name : "Loading...";
+            _placeholder = Label(_page.rectTransform, loadingText, 34, new Color(1f, 1f, 1f, 0.55f), TextAlignmentOptions.Center);
             Place(_placeholder.rectTransform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
-            _page.color = new Color(0.94f, 0.93f, 0.97f);
+            _page.color = App != null ? Color.Lerp(App.color, Color.black, 0.55f) : new Color(0.16f, 0.16f, 0.19f);
+
+            // A short heads-up on apps whose videos can't play here
+            if (App != null && App.protectedMedia && !string.IsNullOrEmpty(App.note))
+            {
+                _note = Label(c, App.note, 15, new Color(1f, 0.85f, 0.6f), TextAlignmentOptions.Center);
+                _note.textWrappingMode = TextWrappingModes.Normal;
+                var bg = Box(c, "Note", new Color(0.1f, 0.08f, 0.04f, 0.9f));
+                bg.transform.SetSiblingIndex(_note.transform.GetSiblingIndex());
+                Place(bg.rectTransform, new Vector2(0.12f, 0), new Vector2(0.88f, 0), new Vector2(0, 12), new Vector2(0, 62));
+                Place(_note.rectTransform, new Vector2(0.12f, 0), new Vector2(0.88f, 0), new Vector2(12, 12), new Vector2(-12, 62));
+                _noteBg = bg.gameObject;
+                _noteUntil = Time.unscaledTime + 9f;
+            }
 
             _tex = new Texture2D(pageWidth, pageHeight, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
-            _sharp = new RenderTexture(pageWidth, pageHeight, 0, RenderTextureFormat.ARGB32)
+            _sharp = new RenderTexture(pageWidth, pageHeight, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB)
             {
                 useMipMap = true, autoGenerateMips = true, filterMode = FilterMode.Trilinear, anisoLevel = 8,
                 wrapMode = TextureWrapMode.Clamp, name = "Harley Page"
@@ -124,6 +171,20 @@ namespace Harley
             _sharp.Create();
             CreateWebView();
             LastUsed = Time.unscaledTime;
+        }
+
+        static readonly Color ghost = new Color(1f, 1f, 1f, 0.06f);
+        TextMeshProUGUI _note;
+        GameObject _pill;
+        GameObject _noteBg;
+        float _noteUntil;
+
+        void AskAddress()
+        {
+            HarleyKeyboard.Open("", "Search or type a web address", t =>
+            {
+                if (!string.IsNullOrWhiteSpace(t)) Load(t.Trim());
+            });
         }
 
         void CreateWebView()
@@ -134,7 +195,8 @@ namespace Harley
                 using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
                 {
                     var activity = player.GetStatic<AndroidJavaObject>("currentActivity");
-                    _web = new AndroidJavaObject("com.harley.web.HarleyWebView", activity, pageWidth, pageHeight, pageDpi, startUrl);
+                    _web = new AndroidJavaObject("com.harley.web.HarleyWebView", activity, pageWidth, pageHeight, pageDpi, startUrl,
+                        App != null && App.identity == AppCatalog.Identity.Desktop ? 1 : 0);
                 }
                 _buffer = _web.Call<AndroidJavaObject>("getBuffer");
                 unsafe { _bufferAddress = (IntPtr)AndroidJNI.GetDirectBufferAddress(_buffer.GetRawObject()); }
@@ -162,12 +224,13 @@ namespace Harley
                 _lastFrame = frame;
                 _tex.LoadRawTextureData(_bufferAddress, pageWidth * pageHeight * 4);
                 _tex.Apply(false);
-                Graphics.Blit(_tex, _sharp); // builds the mipmaps
+                Graphics.Blit(_tex, _sharp, new Vector2(1f, -1f), new Vector2(0f, 1f)); // right way up + mipmaps
                 if (_frames++ == 0)
                 {
                     _page.texture = _sharp;
                     _page.color = Color.white;
                     if (_placeholder) _placeholder.gameObject.SetActive(false);
+                    if (sharpLayer) MakeSharpLayer();
                 }
             }
             if (Time.unscaledTime >= _nextInfo)
@@ -176,17 +239,72 @@ namespace Harley
                 _title = _web.Call<string>("getTitle") ?? "";
                 _url = _web.Call<string>("getUrl") ?? "";
                 bool loading = _web.Call<bool>("isLoading");
-                if (_titleLabel) _titleLabel.text = (loading ? "Loading...  " : "") + (_title.Length > 0 ? _title : _url);
+                string shown = App != null ? App.name : _title.Length > 0 ? _title : _url;
+                if (_titleLabel) _titleLabel.text = (loading ? "Loading...  " : "") + shown;
             }
+            if (_noteBg != null && Time.unscaledTime > _noteUntil) { Destroy(_noteBg); Destroy(_note.gameObject); _noteBg = null; }
             if (TvMode != _wasTv)
             {
                 _wasTv = TvMode;
                 if (_tvKeys) _tvKeys.SetActive(_wasTv);
-                if (_titleLabel) _titleLabel.gameObject.SetActive(!_wasTv);
+                if (_pill) _pill.SetActive(!_wasTv);
             }
 #else
             if (_titleLabel) _titleLabel.text = _title;
 #endif
+        }
+
+        // ---------- compositor layer (sharp like system windows) ----------
+
+        OVROverlay _overlay;
+        static Material _hole;
+
+        void MakeSharpLayer()
+        {
+            try
+            {
+                var shader = Shader.Find("Harley/Underlay Hole");
+                if (shader == null) return;
+                if (_hole == null) _hole = new Material(shader);
+
+                var go = new GameObject("Sharp Page");
+                go.transform.SetParent(transform, false);
+                Rect r = _page.rectTransform.rect;
+                go.transform.position = _page.rectTransform.TransformPoint(r.center);
+                go.transform.rotation = transform.rotation;
+                go.transform.localScale = new Vector3(r.width / PixelsPerMeter, r.height / PixelsPerMeter, 1f);
+
+                _overlay = go.AddComponent<OVROverlay>();
+                _overlay.currentOverlayType = OVROverlay.OverlayType.Underlay;
+                _overlay.currentOverlayShape = OVROverlay.OverlayShape.Quad;
+                _overlay.isDynamic = true;
+                _overlay.noDepthBufferTesting = true;
+                _overlay.useEfficientSupersample = true;
+                _overlay.compositionDepth = 0;
+                _overlay.textures = new Texture[] { _sharp, null };
+
+                // (Passthrough is the backmost underlay, so the page sits in front of it.)
+
+                _page.material = _hole; // see-through hole where the layer shows
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[Harley] Sharp layer not available, using the normal page: " + e.Message);
+                if (_overlay) Destroy(_overlay.gameObject);
+                _overlay = null;
+                _page.material = null;
+            }
+        }
+
+        void LateUpdate()
+        {
+            // The compositor can't show the layer (e.g. not on a headset): fall back to the normal picture.
+            if (_overlay != null && Time.frameCount % 30 == 0 && _frames > 60 && !_overlay.isOverlayVisible && _page.material == _hole)
+            {
+                Debug.LogWarning("[Harley] Sharp layer not visible, using the normal page.");
+                _page.material = null;
+                _overlay.enabled = false;
+            }
         }
 
         // ---------- touching the page ----------

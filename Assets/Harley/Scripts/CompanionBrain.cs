@@ -309,6 +309,15 @@ namespace Harley
                 : "[event] The player just threw you across the room! You bounced and landed. React (dizzy, thrilled or outraged, your call).", 0.5f);
         }
 
+        /// <summary>Something happened in a game or tool (drawing, breaking, fetch...): Harley may comment, with the usual cooldown.</summary>
+        public void React(string evt, Emotion flash = Emotion.Excited)
+        {
+            WakeUp();
+            interaction?.MarkActivity();
+            visual?.FlashEmotion(flash, 2f);
+            TryEventCall("[event] " + evt, 0.6f);
+        }
+
         void TryEventCall(string text, float cooldownScale = 1f)
         {
             if (_requestRunning || (voice && voice.IsSpeaking)) return;
@@ -505,6 +514,10 @@ namespace Harley
                 if (note.Length > 0) sight += " " + note;
             }
 
+            if (!window && HarleyWorld.Immersive)
+                sight += " Right now the player switched to your own virtual world: a quiet dusk island with a lake, lilac trees, glowing crystals, " +
+                         "floating lanterns and stars. You both are there (their real room is hidden). You can talk about it like your home.";
+
             string place = "";
             string roomBlock = "";
             string actions;
@@ -538,7 +551,7 @@ namespace Harley
                 : "You are not connected to live information, so say so if they ask about today's news or weather.";
 
             return string.Format(world, config.companionName) + @"
-You are round and white, about the size of a grapefruit, with glowing purple eyes, a purple halo that spins above your head and two tiny floating hands.
+You are a small, friendly robot about 40 cm tall: a soft white shell, a round head with glowing purple eyes, a purple halo that spins above your head, a glowing purple core in your chest, real arms with hands, and short legs. You hover and fly instead of walking.
 
 Personality: " + config.personality + @"
 

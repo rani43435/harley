@@ -129,7 +129,7 @@ namespace Harley.EditorTools
                 : new Vector3(0f, 1.3f, 0.9f);
             if (pos.y < 0.6f) pos.y = 1.2f; // the rig's camera sits on the floor in the Editor; on the headset it's at eye height
 
-            Parts p = BuildBody(pos);
+            Parts p = BuildBody(pos, true);
             GameObject root = p.root;
 
             var claude = root.AddComponent<ClaudeClient>();
@@ -145,9 +145,10 @@ namespace Harley.EditorTools
             var brain = root.AddComponent<CompanionBrain>();
 
             interaction.body = p.body.transform;
-            interaction.bodyRadius = 0.1f;
+            interaction.bodyRadius = 0.08f;
             interaction.movement = movement;
-            movement.bodyRadius = 0.1f;
+            movement.bodyRadius = 0.08f;
+            movement.standHeight = 0.2f;
             movement.room = room;
 
             WireCommon(p, config, claude, eyes, memory, tools, movement, interaction, voice, brain, room);
@@ -170,6 +171,16 @@ namespace Harley.EditorTools
             wristGO.transform.SetParent(ui.transform, false);
             var wrist = wristGO.AddComponent<WristButton>();
             wrist.menu = menu;
+            // Harley's world (immersive mode) and the play tools
+            var white = AssetDatabase.LoadAssetAtPath<Material>(MatDir + "/Harley_White.mat");
+            var purpleMat = AssetDatabase.LoadAssetAtPath<Material>(MatDir + "/Harley_Purple.mat");
+            var world = ui.AddComponent<HarleyWorld>();
+            world.litTemplate = white;
+            world.glowTemplate = purpleMat;
+            var tools = ui.AddComponent<HarleyTools>();
+            tools.brain = brain;
+            tools.litTemplate = white;
+            tools.glowTemplate = purpleMat;
             foreach (var c in ui.GetComponentsInChildren<Component>(true)) EditorUtility.SetDirty(c);
 
             EnsureLight();
@@ -199,7 +210,7 @@ namespace Harley.EditorTools
 
         // ---------- shared ----------
 
-        static Parts BuildBody(Vector3 position)
+        static Parts BuildBody(Vector3 position, bool robot = false)
         {
             EnsureFolder(RootDir);
             EnsureFolder(MatDir);
@@ -221,9 +232,27 @@ namespace Harley.EditorTools
             visualGO.transform.SetParent(p.root.transform, false);
             p.visual = visualGO.AddComponent<CompanionVisual>();
 
+            if (robot)
+            {
+                p.visual.haloHeight = 0.1f;
+                p.visual.haloRadius = 0.058f;
+                p.visual.gestureScale = 1.9f;
+                p.visual.listenHandOffset = new Vector3(0.02f, 0.2f, 0.0f);
+            }
+
             var squash = new GameObject("SquashRoot").transform;
             squash.SetParent(visualGO.transform, false);
 
+            // Robot: a smaller, slightly wider head on a body. Window app: just the round head.
+            Transform headT = squash;
+            if (robot)
+            {
+                headT = new GameObject("Head").transform;
+                headT.SetParent(squash, false);
+                headT.localScale = new Vector3(0.82f, 0.76f, 0.78f);
+            }
+            var squashT = squash;
+            squash = headT;
             p.body = Prim("Body", squash, Vector3.zero, Vector3.one * 0.2f, white);
             p.sounds = p.body.AddComponent<CompanionSounds>(); // sounds come from the body
             var eyeL = Prim("EyeL", squash, new Vector3(-0.038f, 0.016f, 0.088f), new Vector3(0.032f, 0.05f, 0.014f), purple);
@@ -231,8 +260,11 @@ namespace Harley.EditorTools
             var mouth = Prim("Mouth", squash, new Vector3(0f, -0.027f, 0.094f), new Vector3(0.018f, 0.006f, 0.008f), purple);
             var cheekL = Prim("CheekL", squash, new Vector3(-0.061f, -0.014f, 0.077f), new Vector3(0.024f, 0.012f, 0.008f), cheek);
             var cheekR = Prim("CheekR", squash, new Vector3(0.061f, -0.014f, 0.077f), new Vector3(0.024f, 0.012f, 0.008f), cheek);
-            var handL = Prim("HandL", visualGO.transform, new Vector3(-0.128f, -0.03f, 0.02f), Vector3.one * 0.034f, white);
-            var handR = Prim("HandR", visualGO.transform, new Vector3(0.128f, -0.03f, 0.02f), Vector3.one * 0.034f, white);
+            squash = squashT;
+            Vector3 handPosL = robot ? new Vector3(-0.1f, -0.215f, 0.025f) : new Vector3(-0.128f, -0.03f, 0.02f);
+            var handL = Prim("HandL", visualGO.transform, handPosL, robot ? new Vector3(0.03f, 0.034f, 0.026f) : Vector3.one * 0.034f, white);
+            var handR = Prim("HandR", visualGO.transform, new Vector3(-handPosL.x, handPosL.y, handPosL.z), robot ? new Vector3(0.03f, 0.034f, 0.026f) : Vector3.one * 0.034f, white);
+            if (robot) BuildRobotBody(p, visualGO.transform, white, purple, handL.transform, handR.transform);
 
             // halo
             var haloGO = new GameObject("Halo");
@@ -258,7 +290,7 @@ namespace Harley.EditorTools
             // trail
             var trailGO = new GameObject("Trail");
             trailGO.transform.SetParent(visualGO.transform, false);
-            trailGO.transform.localPosition = new Vector3(0f, -0.06f, 0f);
+            trailGO.transform.localPosition = new Vector3(0f, robot ? -0.3f : -0.06f, 0f);
             var trail = trailGO.AddComponent<TrailRenderer>();
             trail.sharedMaterial = glow;
             trail.time = 0.35f;
@@ -310,6 +342,57 @@ namespace Harley.EditorTools
             v.sparkles = sparkles;
             v.glowRenderers = new Renderer[] { eyeL.GetComponent<Renderer>(), eyeR.GetComponent<Renderer>(), mouth.GetComponent<Renderer>() };
             return p;
+        }
+
+        /// <summary>
+        /// Harley's robot body: neck, chest with a glowing core, hips, jointed arms and short legs.
+        /// An original design: soft white shell, purple joints and light, the halo and face of Harley.
+        /// </summary>
+        static void BuildRobotBody(Parts p, Transform visual, Material white, Material purple, Transform handL, Transform handR)
+        {
+            Material joint = LitMaterial("Harley_Joint", new Color(0.82f, 0.8f, 0.9f), 0.05f, 0.6f);
+            var bodyT = new GameObject("Torso").transform;
+            bodyT.SetParent(visual, false);
+
+            Prim("Neck", bodyT, new Vector3(0f, -0.085f, 0f), new Vector3(0.035f, 0.016f, 0.035f), joint, PrimitiveType.Cylinder);
+            Prim("Chest", bodyT, new Vector3(0f, -0.145f, 0f), new Vector3(0.125f, 0.105f, 0.09f), white);
+            Prim("Collar", bodyT, new Vector3(0f, -0.103f, 0f), new Vector3(0.09f, 0.006f, 0.065f), purple, PrimitiveType.Cylinder);
+            var core = Prim("Core", bodyT, new Vector3(0f, -0.14f, 0.043f), new Vector3(0.026f, 0.026f, 0.01f), purple);
+            Prim("Waist", bodyT, new Vector3(0f, -0.2f, 0f), new Vector3(0.06f, 0.012f, 0.05f), joint, PrimitiveType.Cylinder);
+            Prim("Hips", bodyT, new Vector3(0f, -0.225f, 0f), new Vector3(0.09f, 0.055f, 0.07f), white);
+
+            var rig = visual.gameObject.AddComponent<RobotRig>();
+            rig.visual = p.visual;
+            rig.body = bodyT;
+            rig.core = core.GetComponent<Renderer>();
+
+            RobotRig.Arm Arm(string side, float x, Transform hand)
+            {
+                var a = new RobotRig.Arm();
+                a.shoulder = Prim("Shoulder" + side, bodyT, new Vector3(x * 0.068f, -0.118f, 0f), Vector3.one * 0.03f, purple).transform;
+                a.upper = Prim("UpperArm" + side, visual, Vector3.zero, Vector3.one * 0.02f, white, PrimitiveType.Capsule).transform;
+                a.lower = Prim("Forearm" + side, visual, Vector3.zero, Vector3.one * 0.02f, white, PrimitiveType.Capsule).transform;
+                a.hand = hand;
+                a.upperLength = 0.072f; a.lowerLength = 0.072f;
+                return a;
+            }
+            rig.left = Arm("L", -1f, handL);
+            rig.right = Arm("R", 1f, handR);
+            rig.left.elbowHint = new Vector3(-1f, -0.3f, -1f);
+
+            RobotRig.Leg Leg(string side, float x)
+            {
+                var l = new RobotRig.Leg();
+                l.hip = Prim("Hip" + side, bodyT, new Vector3(x * 0.03f, -0.245f, 0f), Vector3.one * 0.026f, purple).transform;
+                l.thigh = Prim("Thigh" + side, visual, Vector3.zero, Vector3.one * 0.02f, white, PrimitiveType.Capsule).transform;
+                l.shin = Prim("Shin" + side, visual, Vector3.zero, Vector3.one * 0.02f, white, PrimitiveType.Capsule).transform;
+                l.foot = Prim("Foot" + side, visual, Vector3.zero, new Vector3(0.026f, 0.014f, 0.04f), white).transform;
+                l.thighLength = 0.06f; l.shinLength = 0.06f;
+                return l;
+            }
+            rig.legL = Leg("L", -1f);
+            rig.legR = Leg("R", 1f);
+            rig.limbWidth = 0.024f;
         }
 
         static void WireCommon(Parts p, CompanionConfig config, ClaudeClient claude, CompanionSight eyes, CompanionMemory memory,

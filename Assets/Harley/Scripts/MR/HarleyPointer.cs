@@ -54,6 +54,18 @@ namespace Harley
         /// <summary>True while any pointer is over a panel (so Harley's hands logic can ignore that pinch).</summary>
         public static bool AnyHover { get; private set; }
 
+        /// <summary>A hand or controller ray that is not pointing at a panel: the play tools use these.</summary>
+        public struct FreeRay
+        {
+            public bool valid, pressed, isHand;
+            public Vector3 origin, direction;
+        }
+        /// <summary>[0] left, [1] right. Updated every frame.</summary>
+        public static readonly FreeRay[] Free = new FreeRay[2];
+        /// <summary>Set by the play tools while a tool is active, so the ray is drawn in empty space too.</summary>
+        public static bool ShowFreeRay;
+        public static Color FreeRayColor = new Color(0.77f, 0.71f, 0.99f, 0.6f);
+
         void Awake()
         {
             _sides[0] = new Side { id = 0, node = XRNode.LeftHand, anchorName = "leftcontrolleranchor" };
@@ -106,6 +118,7 @@ namespace Harley
         void UpdateSide(Side s)
         {
             bool havePose = GetRay(s, out Vector3 origin, out Vector3 dir, out bool pressedNow, out Vector2 stick, out bool isHand);
+            Free[s.id] = default;
 
             // Direct touch with the index finger beats the ray.
             if (isHand && s.indexTip != null && s.indexTip.gameObject.activeInHierarchy && !s.pressed)
@@ -159,7 +172,13 @@ namespace Harley
                 }
                 Draw(s, origin, bestHit.world, pressedNow);
             }
-            else HideVisuals(s);
+            else
+            {
+                HideVisuals(s);
+                // Not on a panel: free for the play tools
+                Free[s.id] = new FreeRay { valid = true, pressed = pressedNow, isHand = isHand, origin = origin, direction = dir };
+                if (ShowFreeRay) DrawFree(s, origin, dir, pressedNow);
+            }
 
             s.pressed = pressedNow;
         }
@@ -343,6 +362,18 @@ namespace Harley
             s.dot.gameObject.SetActive(true);
             s.dot.position = to - (to - from).normalized * 0.002f;
             s.dot.localScale = Vector3.one * (pressed ? 0.006f : 0.009f);
+        }
+
+        void DrawFree(Side s, Vector3 from, Vector3 dir, bool pressed)
+        {
+            Vector3 to = from + dir * 0.6f;
+            s.line.enabled = true;
+            s.line.SetPosition(0, from + dir * 0.03f);
+            s.line.SetPosition(1, to);
+            Color c = pressed ? pressColor : FreeRayColor;
+            s.line.startColor = new Color(c.r, c.g, c.b, 0.0f);
+            s.line.endColor = c;
+            s.dot.gameObject.SetActive(false);
         }
 
         void HideVisuals(Side s)
