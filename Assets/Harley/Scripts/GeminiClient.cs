@@ -70,7 +70,7 @@ namespace Harley
                 var body = MiniJson.Obj(
                     "system_instruction", MiniJson.Obj("parts", new List<object> { MiniJson.Obj("text", system + JsonRule) }),
                     "contents", contents,
-                    "generationConfig", MiniJson.Obj("maxOutputTokens", Mathf.Max(600, config.maxTokens), "temperature", 0.9));
+                    "generationConfig", MiniJson.Obj("maxOutputTokens", Mathf.Max(2048, config.maxTokens), "temperature", 0.9)); // thinking counts toward this: leave room
                 if (functions.Count > 0)
                     body["tools"] = new List<object> { MiniJson.Obj("functionDeclarations", functions) };
 
@@ -282,8 +282,20 @@ namespace Harley
                 "generationConfig", MiniJson.Obj("temperature", 0.0, "maxOutputTokens", 300));
             Dictionary<string, object> resp = null;
             string error = null;
-            yield return Generate(config, MiniJson.Serialize(body), r => resp = r, e => error = e, 20);
-            if (error != null) { fail(error); yield break; }
+            string json = MiniJson.Serialize(body);
+            // Gemini's own speech-to-text model first (faster, better with accents), then the normal model
+            if (!_noTranscribeModel)
+            {
+                long code = 0; string raw = null, err = null;
+                yield return Post(config, Api + "models/" + TranscribeModel + ":generateContent", json, (c, r, e) => { code = c; raw = r; err = e; }, 15);
+                if (err == null) { try { resp = MiniJson.Parse(raw) as Dictionary<string, object>; } catch { } }
+                else if (code == 404 || code == 400) _noTranscribeModel = true;
+            }
+            if (resp == null)
+            {
+                yield return Generate(config, json, r => resp = r, e => error = e, 20);
+                if (error != null) { fail(error); yield break; }
+            }
             var sb = new StringBuilder();
             foreach (var part in First(resp.ListAt("candidates")).ObjAt("content").ListAt("parts") ?? new List<object>())
                 if (part is Dictionary<string, object> pd && pd.Str("text") != null) sb.Append(pd.Str("text"));
@@ -291,6 +303,8 @@ namespace Harley
             ok(text);
         }
 
+        const string TranscribeModel = "gemini-3.5-transcribe";
+        static bool _noTranscribeModel;
         static string _ttsModel;
         static bool _ttsLookedUp;
 
