@@ -1,0 +1,29 @@
+using UnityEditor;
+using UnityEngine;
+
+namespace Harley.EditorTools
+{
+    /// <summary>The 360 views (Resources/Views) import big and sharp, wrapping around sideways.</summary>
+    public class HarleyViewImport : AssetPostprocessor
+    {
+        void OnPreprocessTexture()
+        {
+            if (!assetPath.Replace('\\', '/').Contains("/Harley/Resources/Views/")) return;
+            var ti = (TextureImporter)assetImporter;
+            ti.textureType = TextureImporterType.Default;
+            ti.sRGBTexture = true;
+            ti.mipmapEnabled = true;
+            ti.maxTextureSize = 4096;
+            ti.wrapModeU = TextureWrapMode.Repeat;
+            ti.wrapModeV = TextureWrapMode.Clamp;
+            ti.filterMode = FilterMode.Trilinear;
+            ti.anisoLevel = 4;
+            ti.npotScale = TextureImporterNPOTScale.None;
+            var android = ti.GetPlatformTextureSettings("Android");
+            android.overridden = true;
+            android.maxTextureSize = 4096;
+            android.format = TextureImporterFormat.ASTC_6x6;
+            ti.SetPlatformTextureSettings(android);
+        }
+    }
+}

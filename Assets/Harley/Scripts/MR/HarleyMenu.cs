@@ -219,7 +219,7 @@ namespace Harley
                 if (_toolButtons[i] != null) _toolButtons[i].baseColor = tools != null && (int)tools.Current == i + 2 ? primary : button; // buttons: Add, Break, Cover, Fetch, Fight
             if (_option != null && _option.label != null)
                 _option.label.text = tools != null ? "Thing: " + tools.AddItemName : "Thing";
-            if (_world != null && _world.label != null && HarleyWorld.Instance != null) _world.label.text = "View: " + HarleyWorld.Label(HarleyWorld.Instance.Current);
+            if (_world != null && _world.label != null && HarleyWorld.Instance != null) _world.label.text = "View: " + HarleyWorld.Instance.CurrentLabel;
         }
 
         /// <summary>Left controller menu button toggles the menu (runs on the always-active watcher).</summary>

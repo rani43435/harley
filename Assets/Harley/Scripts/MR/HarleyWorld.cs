@@ -66,7 +66,81 @@ namespace Harley
         System.Collections.IEnumerator Later(Mode m) { yield return new WaitForSeconds(1.5f); SetMode(m); }
 
         /// <summary>Room -> Room + world -> World -> Room.</summary>
-        public void Toggle() => SetMode((Mode)(((int)Current + 1) % 3));
+        // ---------- 360 views for "Room + world" (Resources/Views, Poly Haven, CC0) ----------
+
+        static readonly (string file, string name)[] ViewNames =
+        {
+            ("umhlanga_sunrise", "Beach"), ("lilienstein", "Meadow"), ("immenstadter_horn", "Alps"),
+            ("misty_pines", "Forest"), ("shanghai_bund", "City night"),
+        };
+        readonly List<(Texture2D tex, string name)> _views = new List<(Texture2D, string)>();
+        bool _viewsLoaded;
+        public int ViewIndex { get; private set; }
+        GameObject _pano;
+        Material _panoMat;
+
+        void LoadViews()
+        {
+            if (_viewsLoaded) return;
+            _viewsLoaded = true;
+            foreach (var (file, name) in ViewNames)
+            {
+                var tex = Resources.Load<Texture2D>("Views/" + file);
+                if (tex != null) _views.Add((tex, name));
+            }
+            ViewIndex = Mathf.Clamp(PlayerPrefs.GetInt(Pref + ".view", 0), 0, Mathf.Max(0, _views.Count - 1));
+        }
+
+        /// <summary>The name shown on the menu button.</summary>
+        public string CurrentLabel
+        {
+            get
+            {
+                if (Current != Mode.Blend) return Label(Current);
+                LoadViews();
+                return _views.Count > 0 ? "Room + " + _views[ViewIndex].name : "Room + world";
+            }
+        }
+
+        /// <summary>My room -> Room + each view -> Harley's world -> My room.</summary>
+        public void Toggle()
+        {
+            LoadViews();
+            if (Current == Mode.Room) { ViewIndex = 0; SetMode(Mode.Blend); }
+            else if (Current == Mode.Blend && ViewIndex + 1 < _views.Count) { ViewIndex++; ShowView(); }
+            else SetMode((Mode)(((int)Current + 1) % 3));
+            PlayerPrefs.SetInt(Pref + ".view", ViewIndex);
+        }
+
+        /// <summary>Shows a 360 view through the walls (blend). Without views, the 3D world is used instead.</summary>
+        void ShowView()
+        {
+            LoadViews();
+            bool on = Current == Mode.Blend && _views.Count > 0;
+            if (!on) { if (_pano) _pano.SetActive(false); return; }
+            if (_pano == null)
+            {
+                var shader = Shader.Find("Harley/Panorama");
+                if (shader == null) return;
+                _panoMat = new Material(shader);
+                _pano = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                _pano.name = "360 View";
+                Destroy(_pano.GetComponent<Collider>());
+                _pano.transform.localScale = Vector3.one * 400f;
+                var r = _pano.GetComponent<Renderer>();
+                r.sharedMaterial = _panoMat;
+                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            }
+            _panoMat.SetTexture("_MainTex", _views[ViewIndex].tex);
+            _panoMat.SetFloat("_Exposure", _views[ViewIndex].name == "City night" ? 1.1f : 1f);
+            _pano.SetActive(true);
+        }
+
+        void LateUpdate()
+        {
+            // The view is "infinitely far": it moves with your head, only turning stays put
+            if (_pano != null && _pano.activeSelf && head != null) _pano.transform.position = head.position;
+        }
 
         public void SetImmersive(bool on) => SetMode(on ? Mode.World : Mode.Room);
 
@@ -88,8 +162,11 @@ namespace Harley
             foreach (var pt in _passthrough) if (pt) pt.enabled = m != Mode.World;
             SuppressBoundary(m != Mode.World);
 
-            if (m != Mode.Room && _world == null) Build();
-            if (_world) _world.SetActive(m != Mode.Room);
+            LoadViews();
+            bool panoBlend = m == Mode.Blend && _views.Count > 0;
+            if ((m == Mode.World || (m == Mode.Blend && !panoBlend)) && _world == null) Build();
+            if (_world) _world.SetActive(m == Mode.World || (m == Mode.Blend && !panoBlend));
+            ShowView();
             if (_cam)
             {
                 if (m == Mode.World) { _cam.clearFlags = CameraClearFlags.SolidColor; _cam.backgroundColor = new Color(0.08f, 0.06f, 0.2f, 1f); }
@@ -170,6 +247,27 @@ namespace Harley
                     q.transform.localScale = new Vector3(seg, hgt, 1f);
                 }
                 roomMin = c - new Vector3(rad, 0, rad); roomMax = c + new Vector3(rad, hgt, rad);
+            }
+
+            // Your real furniture stays in front of the views: invisible boxes that only write depth, drawn before the portals
+            var occShader = Shader.Find("Harley/Passthrough Window");
+            if (occShader != null && room != null)
+            {
+                var occ = new Material(occShader) { renderQueue = 1900 };
+                foreach (var thing in room.Things)
+                {
+                    if (!thing.isVolume) continue;
+                    var box = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    Destroy(box.GetComponent<Collider>());
+                    box.name = "Keep real " + thing.name;
+                    box.transform.SetParent(_windows.transform, false);
+                    box.transform.position = thing.center;
+                    box.transform.rotation = thing.anchor != null ? Quaternion.Euler(0f, thing.anchor.eulerAngles.y, 0f) : Quaternion.identity;
+                    box.transform.localScale = thing.size + Vector3.one * 0.03f;
+                    var br = box.GetComponent<Renderer>();
+                    br.sharedMaterial = occ;
+                    br.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                }
             }
 
             // World things that would stand inside your room are hidden (they'd look painted onto the walls)
@@ -275,27 +373,50 @@ namespace Harley
                 m.transform.rotation = Quaternion.Euler(0f, R(0f, 360f), 0f);
             }
 
-            // Trees: a ring of them, not too close
-            for (int i = 0; i < 22; i++)
+            // Trees, bushes and grass: Quaternius' low-poly nature models (Resources/Nature, CC0) if present
+            var trees = LoadNature("Tree");
+            var bushes = LoadNature("Bush");
+            var grasses = LoadNature("Grass");
+            for (int i = 0; i < 26; i++)
             {
                 float a = R(0f, Mathf.PI * 2f);
-                float d = R(5.5f, 12f);
+                float d = R(5.5f, 13f);
                 Vector3 p = c + new Vector3(Mathf.Cos(a) * d, 0f, Mathf.Sin(a) * d);
                 if (Vector2.Distance(new Vector2(p.x, p.z), new Vector2(c.x - 7f, c.z + 9f)) < 6f) continue; // not in the lake
                 float hgt = R(1.6f, 3.2f);
+                if (trees.Count > 0)
+                {
+                    Place(trees[rnd.Next(trees.Count)], w, p, R(3f, 5.5f), R(0f, 360f), i % 3 == 0 ? leaf2 : null);
+                    continue;
+                }
                 Prim(PrimitiveType.Cylinder, "Trunk", w, p + Vector3.up * hgt * 0.5f, new Vector3(0.16f, hgt * 0.5f, 0.16f), bark);
                 var crown = i % 3 == 0 ? leaf2 : leaf;
                 Prim(PrimitiveType.Sphere, "Crown", w, p + Vector3.up * (hgt + 0.3f), Vector3.one * R(1.4f, 2.1f), crown);
                 Prim(PrimitiveType.Sphere, "Crown", w, p + new Vector3(R(-0.5f, 0.5f), hgt - 0.1f, R(-0.5f, 0.5f)), Vector3.one * R(1f, 1.4f), crown);
             }
+            for (int i = 0; bushes.Count > 0 && i < 30; i++)
+            {
+                float a = R(0f, Mathf.PI * 2f), d = R(3f, 14f);
+                Place(bushes[rnd.Next(bushes.Count)], w, c + new Vector3(Mathf.Cos(a) * d, 0f, Mathf.Sin(a) * d), R(0.5f, 1.1f), R(0f, 360f), null);
+            }
+            for (int i = 0; grasses.Count > 0 && i < 70; i++)
+            {
+                float a = R(0f, Mathf.PI * 2f), d = R(2.2f, 15f);
+                Place(grasses[rnd.Next(grasses.Count)], w, c + new Vector3(Mathf.Cos(a) * d, 0f, Mathf.Sin(a) * d), R(0.2f, 0.45f), R(0f, 360f), null);
+            }
 
             // Rocks and glowing crystals
+            var rocks = LoadNature("Rock");
             for (int i = 0; i < 16; i++)
             {
                 float a = R(0f, Mathf.PI * 2f), d = R(3f, 13f);
                 Vector3 p = c + new Vector3(Mathf.Cos(a) * d, 0f, Mathf.Sin(a) * d);
-                var r = Prim(PrimitiveType.Sphere, "Rock", w, p, new Vector3(R(0.4f, 1.1f), R(0.25f, 0.6f), R(0.4f, 1f)), rock);
-                r.transform.rotation = Quaternion.Euler(R(-10, 10), R(0, 360), R(-10, 10));
+                if (rocks.Count > 0) Place(rocks[rnd.Next(rocks.Count)], w, p, R(0.35f, 0.9f), R(0f, 360f), null);
+                else
+                {
+                    var r = Prim(PrimitiveType.Sphere, "Rock", w, p, new Vector3(R(0.4f, 1.1f), R(0.25f, 0.6f), R(0.4f, 1f)), rock);
+                    r.transform.rotation = Quaternion.Euler(R(-10, 10), R(0, 360), R(-10, 10));
+                }
                 if (i % 2 == 0)
                     for (int k = 0; k < 3; k++)
                     {
@@ -324,6 +445,63 @@ namespace Harley
             sun.intensity = 0.9f;
             sun.shadows = LightShadows.None;
             lightGO.transform.rotation = Quaternion.LookRotation(new Vector3(-0.3f, -0.4f, -0.9f));
+        }
+
+        static List<GameObject> LoadNature(string prefix)
+        {
+            var list = new List<GameObject>();
+            foreach (var go in Resources.LoadAll<GameObject>("Nature"))
+                if (go.name.StartsWith(prefix, System.StringComparison.OrdinalIgnoreCase)) list.Add(go);
+            list.Sort((a, b) => string.CompareOrdinal(a.name, b.name));
+            return list;
+        }
+
+        readonly Dictionary<Material, Material> _natureMats = new Dictionary<Material, Material>();
+
+        /// <summary>Puts a model on the ground at a given height (it's scaled to fit), in Harley's world colours and lighting.</summary>
+        void Place(GameObject prefab, Transform parent, Vector3 groundPos, float height, float yaw, Material tint)
+        {
+            var go = Instantiate(prefab, parent);
+            go.name = prefab.name;
+            foreach (var col in go.GetComponentsInChildren<Collider>()) Destroy(col);
+            go.transform.rotation = Quaternion.Euler(0f, yaw, 0f) * go.transform.rotation;
+            var rs = go.GetComponentsInChildren<Renderer>();
+            if (rs.Length == 0) { go.transform.position = groundPos; return; }
+            Bounds b = rs[0].bounds;
+            foreach (var r in rs) b.Encapsulate(r.bounds);
+            float s = height / Mathf.Max(0.01f, b.size.y);
+            go.transform.localScale *= s;
+            b = rs[0].bounds;
+            foreach (var r in rs) b.Encapsulate(r.bounds);
+            go.transform.position += groundPos - new Vector3(b.center.x, b.min.y, b.center.z);
+
+            // Same simple, stencil-aware lighting as the rest of the world
+            var ws = Shader.Find("Harley/World");
+            foreach (var r in rs)
+            {
+                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                r.receiveShadows = false;
+                if (ws == null) continue;
+                var mats = r.sharedMaterials;
+                for (int i = 0; i < mats.Length; i++)
+                {
+                    var src = mats[i];
+                    if (src == null) continue;
+                    if (!_natureMats.TryGetValue(src, out var m))
+                    {
+                        Color c = src.HasProperty("_BaseColor") ? src.GetColor("_BaseColor") : src.HasProperty("_Color") ? src.color : Color.white;
+                        // Leaves lean to Harley's lilac a little, so the island keeps its dusk look
+                        if (c.g > c.r && c.g > c.b) c = Color.Lerp(c, new Color(0.55f, 0.45f, 0.75f), 0.18f);
+                        m = new Material(ws);
+                        m.SetColor("_BaseColor", c);
+                        m.SetFloat("_Shine", 0.15f);
+                        _worldMats.Add(m);
+                        _natureMats[src] = m;
+                    }
+                    mats[i] = m;
+                }
+                r.sharedMaterials = mats;
+            }
         }
 
         Material Lit(Color col, float smooth)
