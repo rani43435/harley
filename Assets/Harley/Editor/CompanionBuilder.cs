@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -394,14 +395,18 @@ namespace Harley.EditorTools
 
             // Our materials (shared with the rest of Harley), matched by name
             Material joint = LitMaterial("Harley_Joint", new Color(0.81f, 0.78f, 0.9f), 0.05f, 0.6f);
-            Material shine = LitMaterial("Harley_Highlight", Color.white, 1.2f, 0.9f);
+            Material shine = UnlitMaterial("Harley_ShineUnlit", Color.white);
+            // Glowing parts are unlit: they look lit up on every device, no emission keyword needed (it got stripped on Quest)
+            Material glow = UnlitMaterial("Harley_GlowUnlit", Purple);
+            var glowParts = new HashSet<string> { "EyeL", "EyeR", "Mouth", "Core", "HoverGlow", "HoverRing", "Seam" };
             foreach (var r in inst.GetComponentsInChildren<Renderer>(true))
             {
                 var mats = r.sharedMaterials;
+                bool glows = glowParts.Contains(r.name);
                 for (int i = 0; i < mats.Length; i++)
                 {
                     string n = mats[i] != null ? mats[i].name : "";
-                    mats[i] = n.Contains("Purple") ? purple : n.Contains("Cheek") ? cheek : n.Contains("Joint") ? joint : n.Contains("Highlight") ? shine : white;
+                    mats[i] = n.Contains("Purple") ? (glows ? glow : purple) : n.Contains("Cheek") ? cheek : n.Contains("Joint") ? joint : n.Contains("Highlight") ? shine : white;
                 }
                 r.sharedMaterials = mats;
                 r.shadowCastingMode = ShadowCastingMode.Off;
@@ -691,6 +696,24 @@ namespace Harley.EditorTools
                 EditorUtility.SetDirty(m);
                 AssetDatabase.SaveAssetIfDirty(m);
             }
+            return m;
+        }
+
+        static Material UnlitMaterial(string name, Color color)
+        {
+            string path = MatDir + "/" + name + ".mat";
+            var m = AssetDatabase.LoadAssetAtPath<Material>(path);
+            bool isNew = m == null;
+            if (isNew)
+            {
+                Shader sh = Shader.Find("Universal Render Pipeline/Unlit");
+                if (sh == null) sh = Shader.Find("Unlit/Color");
+                m = new Material(sh) { name = name };
+            }
+            color.a = 1f;
+            if (m.HasProperty("_BaseColor")) m.SetColor("_BaseColor", color);
+            if (m.HasProperty("_Color")) m.SetColor("_Color", color);
+            if (isNew) AssetDatabase.CreateAsset(m, path); else EditorUtility.SetDirty(m);
             return m;
         }
 

@@ -411,7 +411,9 @@ namespace Harley
             {
                 if (!r) continue;
                 r.GetPropertyBlock(_mpb);
-                Color albedo = c * 0.2f; albedo.a = 1f; // dark base, the glow comes from emission
+                bool unlit = r.sharedMaterial != null && r.sharedMaterial.shader.name.Contains("Unlit");
+                // Unlit parts show the colour itself; lit parts get a dark base and glow through emission
+                Color albedo = unlit ? Color.Lerp(c, Color.white, Mathf.Clamp01(intensity - 1f) * 0.5f) : c * 0.2f; albedo.a = 1f;
                 _mpb.SetColor(BaseColorId, albedo);
                 _mpb.SetColor(ColorId, albedo);
                 _mpb.SetColor(EmissionId, c * intensity * 1.3f); // a bit over 1: glows, keeps the deep purple

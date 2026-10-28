@@ -29,6 +29,7 @@ namespace Harley
 
         MaterialPropertyBlock _mpb;
         static readonly int EmissionId = Shader.PropertyToID("_EmissionColor");
+        static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
 
         void Awake()
         {
@@ -76,6 +77,12 @@ namespace Harley
         {
             r.GetPropertyBlock(_mpb);
             _mpb.SetColor(EmissionId, emission);
+            if (r.sharedMaterial != null && r.sharedMaterial.shader.name.Contains("Unlit"))
+            {
+                Color c = emission / 1.2f; // unlit: breathe through the colour itself
+                c.r = Mathf.Min(c.r, 1f); c.g = Mathf.Min(c.g, 1f); c.b = Mathf.Min(c.b, 1f); c.a = 1f;
+                _mpb.SetColor(BaseColorId, c);
+            }
             r.SetPropertyBlock(_mpb);
         }
     }
