@@ -419,6 +419,19 @@ namespace Harley.EditorTools
                 foreach (var other in face) if (other != null && other != f && f.IsChildOf(other)) underFacePart = true;
                 if (!underFacePart) f.SetParent(squash, true);
             }
+            // Eye shines: little highlights on the front of each eye, up and to one side
+            foreach (var eye in new[] { eL, eR })
+            {
+                if (eye == null) continue;
+                var er = eye.GetComponent<Renderer>();
+                Transform shine = null;
+                foreach (var tr in inst.GetComponentsInChildren<Transform>(true)) if (tr.name == eye.name + "_Shine") shine = tr;
+                if (shine == null) foreach (var tr in squash.GetComponentsInChildren<Transform>(true)) if (tr.name == eye.name + "_Shine") shine = tr;
+                if (shine == null || er == null) continue;
+                Bounds b = er.bounds;
+                shine.SetParent(eye, true);
+                shine.position = b.center + visual.forward * b.extents.z * 0.9f + visual.up * b.extents.y * 0.45f - visual.right * b.extents.x * 0.35f;
+            }
             GameObject Empty(string n, Transform parent) { var g = new GameObject(n); g.transform.SetParent(parent, false); return g; }
             p.body = head != null ? head.gameObject : inst;
             p.sounds = p.body.AddComponent<CompanionSounds>();
