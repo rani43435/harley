@@ -402,11 +402,11 @@ namespace Harley.EditorTools
             foreach (var r in inst.GetComponentsInChildren<Renderer>(true))
             {
                 var mats = r.sharedMaterials;
-                bool glows = glowParts.Contains(r.name);
+                bool isGlow = glowParts.Contains(r.name);
                 for (int i = 0; i < mats.Length; i++)
                 {
                     string n = mats[i] != null ? mats[i].name : "";
-                    mats[i] = n.Contains("Purple") ? (glows ? glow : purple) : n.Contains("Cheek") ? cheek : n.Contains("Joint") ? joint : n.Contains("Highlight") ? shine : white;
+                    mats[i] = n.Contains("Purple") ? (isGlow ? glow : purple) : n.Contains("Cheek") ? cheek : n.Contains("Joint") ? joint : n.Contains("Highlight") ? shine : white;
                 }
                 r.sharedMaterials = mats;
                 r.shadowCastingMode = ShadowCastingMode.Off;
