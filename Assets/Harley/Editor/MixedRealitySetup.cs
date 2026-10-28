@@ -166,7 +166,7 @@ namespace Harley.EditorTools
 
         static void OpenProjectSetupTool()
         {
-            if (EditorApplication.ExecuteMenuItem("Meta/Tools/Project Setup Tool")) return;
+            // The Meta menu moved between SDK versions: open the settings page directly (no red "menu not found" error)
             SettingsService.OpenProjectSettings("Project/Meta XR");
         }
 
