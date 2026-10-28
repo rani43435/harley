@@ -336,7 +336,7 @@ namespace Harley
             try { pcm = Convert.FromBase64String(data); } catch { fail("bad voice audio"); yield break; }
             int rate = 24000;
             int ri = mime.IndexOf("rate=", StringComparison.Ordinal);
-            if (ri >= 0) { int.TryParse(new string(mime.Substring(ri + 5).TakeDigits()), out int r2); if (r2 > 0) rate = r2; }
+            if (ri >= 0) { int.TryParse(string.Concat(mime.Substring(ri + 5).TakeDigits()), out int r2); if (r2 > 0) rate = r2; }
             int frames = pcm.Length / 2;
             if (frames <= 0) { fail("empty voice audio"); yield break; }
             var samples = new float[frames];
