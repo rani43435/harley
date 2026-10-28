@@ -430,7 +430,10 @@ namespace Harley.EditorTools
                 if (shine == null || er == null) continue;
                 Bounds b = er.bounds;
                 shine.SetParent(eye, true);
-                shine.position = b.center + visual.forward * b.extents.z * 0.9f + visual.up * b.extents.y * 0.45f - visual.right * b.extents.x * 0.35f;
+                Vector3 want = b.center + visual.forward * b.extents.z * 0.9f + visual.up * b.extents.y * 0.45f - visual.right * b.extents.x * 0.35f;
+                var sr = shine.GetComponent<Renderer>();
+                Vector3 meshOffset = sr != null ? sr.bounds.center - shine.position : Vector3.zero; // the mesh may not sit on its pivot
+                shine.position = want - meshOffset;
             }
             GameObject Empty(string n, Transform parent) { var g = new GameObject(n); g.transform.SetParent(parent, false); return g; }
             p.body = head != null ? head.gameObject : inst;
