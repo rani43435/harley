@@ -268,7 +268,132 @@ namespace Harley
             return o;
         }
 
+        // ---------- voice (free with the same Gemini key) ----------
+
+        /// <summary>Speech to text: 16 kHz mono 16-bit PCM in, the words out ("" = nothing said).</summary>
+        public static IEnumerator Transcribe(CompanionConfig config, byte[] pcm16k, Action<string> ok, Action<string> fail)
+        {
+            string wav = Convert.ToBase64String(Wav(pcm16k, 16000));
+            var body = MiniJson.Obj(
+                "contents", new List<object> { MiniJson.Obj("role", "user", "parts", new List<object> {
+                    MiniJson.Obj("text", "Transcribe exactly what the speaker says, in the language they speak (Arabic in Arabic script, German, English...). " +
+                                         "Reply with only the words, nothing else. If nobody speaks, reply with an empty string."),
+                    MiniJson.Obj("inline_data", MiniJson.Obj("mime_type", "audio/wav", "data", wav)) }) },
+                "generationConfig", MiniJson.Obj("temperature", 0.0, "maxOutputTokens", 300));
+            Dictionary<string, object> resp = null;
+            string error = null;
+            yield return Generate(config, MiniJson.Serialize(body), r => resp = r, e => error = e, 20);
+            if (error != null) { fail(error); yield break; }
+            var sb = new StringBuilder();
+            foreach (var part in First(resp.ListAt("candidates")).ObjAt("content").ListAt("parts") ?? new List<object>())
+                if (part is Dictionary<string, object> pd && pd.Str("text") != null) sb.Append(pd.Str("text"));
+            string text = sb.ToString().Trim().Trim('"');
+            ok(text);
+        }
+
+        static string _ttsModel;
+        static bool _ttsLookedUp;
+
+        /// <summary>Text to speech with a Gemini TTS model. Gives back a clip, or fails (then Harley babbles).</summary>
+        public static IEnumerator Speak(CompanionConfig config, string text, Action<AudioClip> ok, Action<string> fail)
+        {
+            if (string.IsNullOrWhiteSpace(config.geminiApiKey)) { fail("no key"); yield break; }
+            if (!_ttsLookedUp)
+            {
+                _ttsLookedUp = true;
+                yield return FindModel(config, n => n.Contains("tts") && n.Contains("flash"), m => _ttsModel = m);
+                if (_ttsModel == null) yield return FindModel(config, n => n.Contains("tts"), m => _ttsModel = m);
+                Debug.Log("[Harley] Gemini voice model: " + (_ttsModel ?? "none"));
+            }
+            if (_ttsModel == null) { fail("no Gemini voice model"); yield break; }
+
+            string voiceName = string.IsNullOrWhiteSpace(config.geminiVoice) ? "Leda" : config.geminiVoice.Trim();
+            var body = MiniJson.Obj(
+                "contents", new List<object> { MiniJson.Obj("role", "user", "parts", new List<object> {
+                    MiniJson.Obj("text", "Say in a warm, bright, playful little voice: " + text) }) },
+                "generationConfig", MiniJson.Obj(
+                    "responseModalities", new List<object> { "AUDIO" },
+                    "speechConfig", MiniJson.Obj("voiceConfig", MiniJson.Obj("prebuiltVoiceConfig", MiniJson.Obj("voiceName", voiceName)))));
+            long code = 0; string raw = null, err = null;
+            yield return Post(config, Api + "models/" + _ttsModel + ":generateContent", MiniJson.Serialize(body), (c, r, e) => { code = c; raw = r; err = e; }, 25);
+            if (err != null) { fail("voice HTTP " + code); yield break; }
+
+            Dictionary<string, object> resp = null;
+            try { resp = MiniJson.Parse(raw) as Dictionary<string, object>; } catch { }
+            string data = null, mime = "";
+            foreach (var part in First(resp?.ListAt("candidates")).ObjAt("content")?.ListAt("parts") ?? new List<object>())
+            {
+                if (!(part is Dictionary<string, object> pd)) continue;
+                var inl = pd.ObjAt("inlineData") ?? pd.ObjAt("inline_data");
+                if (inl == null) continue;
+                data = inl.Str("data");
+                mime = inl.Str("mimeType") ?? inl.Str("mime_type") ?? "";
+                break;
+            }
+            if (string.IsNullOrEmpty(data)) { fail("no audio in the voice reply"); yield break; }
+
+            byte[] pcm;
+            try { pcm = Convert.FromBase64String(data); } catch { fail("bad voice audio"); yield break; }
+            int rate = 24000;
+            int ri = mime.IndexOf("rate=", StringComparison.Ordinal);
+            if (ri >= 0) { int.TryParse(new string(mime.Substring(ri + 5).TakeDigits()), out int r2); if (r2 > 0) rate = r2; }
+            int frames = pcm.Length / 2;
+            if (frames <= 0) { fail("empty voice audio"); yield break; }
+            var samples = new float[frames];
+            for (int i = 0; i < frames; i++) samples[i] = BitConverter.ToInt16(pcm, i * 2) / 32768f;
+            var clip = AudioClip.Create("Harley voice", frames, 1, rate, false);
+            clip.SetData(samples, 0);
+            ok(clip);
+        }
+
+        static IEnumerator FindModel(CompanionConfig config, Func<string, bool> match, Action<string> done)
+        {
+            using (var req = UnityWebRequest.Get(Api + "models?pageSize=200"))
+            {
+                req.SetRequestHeader("x-goog-api-key", config.geminiApiKey.Trim());
+                req.timeout = 15;
+                yield return req.SendWebRequest();
+                if (req.result != UnityWebRequest.Result.Success) { done(null); yield break; }
+                object parsed = null;
+                try { parsed = MiniJson.Parse(req.downloadHandler.text); } catch { }
+                string best = null;
+                foreach (var o in (parsed as Dictionary<string, object>).ListAt("models") ?? new List<object>())
+                {
+                    if (!(o is Dictionary<string, object> m)) continue;
+                    string name = (m.Str("name") ?? "").Replace("models/", "");
+                    var methods = m.ListAt("supportedGenerationMethods");
+                    if (methods == null || !methods.Contains("generateContent") || !match(name)) continue;
+                    if (best == null || string.CompareOrdinal(name, best) > 0) best = name; // newest-looking name
+                }
+                done(best);
+            }
+        }
+
+        static byte[] Wav(byte[] pcm, int rate)
+        {
+            var wav = new byte[44 + pcm.Length];
+            void Str(int at, string s) { for (int i = 0; i < 4; i++) wav[at + i] = (byte)s[i]; }
+            void I32(int at, int v) { BitConverter.GetBytes(v).CopyTo(wav, at); }
+            void I16(int at, short v) { BitConverter.GetBytes(v).CopyTo(wav, at); }
+            Str(0, "RIFF"); I32(4, 36 + pcm.Length); Str(8, "WAVE");
+            Str(12, "fmt "); I32(16, 16); I16(20, 1); I16(22, 1); I32(24, rate); I32(28, rate * 2); I16(32, 2); I16(34, 16);
+            Str(36, "data"); I32(40, pcm.Length);
+            pcm.CopyTo(wav, 44);
+            return wav;
+        }
+
         static Dictionary<string, object> First(List<object> l) =>
             l != null && l.Count > 0 ? l[0] as Dictionary<string, object> ?? new Dictionary<string, object>() : new Dictionary<string, object>();
+    }
+}
+
+namespace Harley
+{
+    static class StringDigits
+    {
+        public static System.Collections.Generic.IEnumerable<char> TakeDigits(this string s)
+        {
+            foreach (char c in s) { if (char.IsDigit(c)) yield return c; else yield break; }
+        }
     }
 }

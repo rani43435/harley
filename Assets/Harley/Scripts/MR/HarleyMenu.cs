@@ -137,6 +137,7 @@ namespace Harley
 
         void Type()
         {
+            gameObject.SetActive(false); // the keyboard takes its place
             HarleyKeyboard.Open("", "Say something to Harley", t =>
             {
                 if (!string.IsNullOrWhiteSpace(t)) brain?.SubmitText(t.Trim());

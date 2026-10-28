@@ -45,6 +45,22 @@ namespace Harley
             if (room == null) room = FindAnyObjectByType<CompanionRoom>();
             int saved = PlayerPrefs.GetInt(Pref, 0);
             if (saved != 0) StartCoroutine(Later((Mode)saved));
+            SuppressBoundary(true); // walk around the whole room: no boundary while you can see it
+        }
+
+        /// <summary>
+        /// Turns the Guardian boundary off while passthrough shows your real room (Quest allows that only with passthrough on),
+        /// and back on in the full virtual world, where you can't see where you're walking.
+        /// </summary>
+        static void SuppressBoundary(bool suppress)
+        {
+            foreach (var mb in FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Exclude))
+            {
+                if (mb == null || mb.GetType().Name != "OVRManager") continue;
+                var f = mb.GetType().GetField("shouldBoundaryVisibilityBeSuppressed");
+                if (f != null) f.SetValue(mb, suppress);
+                return;
+            }
         }
 
         System.Collections.IEnumerator Later(Mode m) { yield return new WaitForSeconds(1.5f); SetMode(m); }
@@ -70,6 +86,7 @@ namespace Harley
                 foreach (var mb in FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Include))
                     if (mb != null && mb.GetType().Name == "OVRPassthroughLayer") _passthrough.Add(mb);
             foreach (var pt in _passthrough) if (pt) pt.enabled = m != Mode.World;
+            SuppressBoundary(m != Mode.World);
 
             if (m != Mode.Room && _world == null) Build();
             if (_world) _world.SetActive(m != Mode.Room);

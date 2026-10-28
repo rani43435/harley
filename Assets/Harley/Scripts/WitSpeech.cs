@@ -36,8 +36,12 @@ namespace Harley
         public float speechThreshold = 0.018f;
 
         public bool HasToken => config != null && !string.IsNullOrWhiteSpace(config.witToken);
-        public bool CanListen => HasToken;
-        public bool CanSpeak => HasToken && config.witVoiceOutput;
+        /// <summary>No Wit token, but a Gemini key: Gemini does the listening (and the voice, while it works).</summary>
+        public bool UsesGemini => !HasToken && config != null && config.provider == AiProvider.Gemini && !string.IsNullOrWhiteSpace(config.geminiApiKey);
+        public bool CanListen => HasToken || UsesGemini;
+        public bool CanSpeak => config != null && config.witVoiceOutput && (HasToken || (UsesGemini && config.geminiVoiceOutput && !_geminiVoiceBroken));
+        bool _geminiVoiceBroken;
+        int _geminiVoiceFails;
         public bool IsRecording { get; private set; }
         public bool IsTranscribing { get; private set; }
         /// <summary>0..1 microphone level while recording.</summary>
@@ -142,6 +146,7 @@ namespace Harley
 
         IEnumerator Dictate(byte[] pcm)
         {
+            if (UsesGemini) { yield return DictateGemini(pcm); yield break; }
             IsTranscribing = true;
             using (var req = new UnityWebRequest($"{Api}/dictation?v={ApiVersion}", UnityWebRequest.kHttpVerbPOST))
             {
@@ -160,6 +165,21 @@ namespace Harley
                 }
                 Transcribed?.Invoke(ParseDictation(req.downloadHandler.text));
             }
+        }
+
+        IEnumerator DictateGemini(byte[] pcm)
+        {
+            IsTranscribing = true;
+            string text = null, error = null;
+            yield return GeminiClient.Transcribe(config, pcm, s => text = s, e => error = e);
+            IsTranscribing = false;
+            if (error != null)
+            {
+                Debug.LogWarning("[Harley] Gemini hearing failed: " + error);
+                Failed?.Invoke(error.Contains("HTTP 429") ? "too many requests, try again" : error.Contains("HTTP 0") ? "no internet" : "I couldn't hear you, try again");
+                yield break;
+            }
+            Transcribed?.Invoke(text ?? "");
         }
 
         /// <summary>Wit streams several JSON objects back to back; join the final transcriptions.</summary>
@@ -219,6 +239,28 @@ namespace Harley
 
         IEnumerator SpeakRoutine(string text, int id)
         {
+            if (UsesGemini)
+            {
+                AudioClip clip = null; string err = null;
+                yield return GeminiClient.Speak(config, text, c => clip = c, e => err = e);
+                if (id != _speakId) yield break;
+                if (clip == null)
+                {
+                    // Free voice quota is small: after a few misses, stop trying this session (Harley babbles instead)
+                    if (++_geminiVoiceFails >= 3 || (err != null && err.Contains("no Gemini voice"))) _geminiVoiceBroken = true;
+                    Debug.LogWarning("[Harley] Gemini voice: " + err);
+                    Failed?.Invoke("voice: " + err);
+                    yield break;
+                }
+                _geminiVoiceFails = 0;
+                output.clip = clip;
+                output.volume = Mathf.Clamp01(config.voiceVolume);
+                output.Play();
+                SpeechStarted?.Invoke();
+                while (id == _speakId && output.isPlaying) yield return null;
+                if (id == _speakId) SpeechFinished?.Invoke();
+                yield break;
+            }
             if (!_voiceLookupDone) yield return FindVoice();
             if (id != _speakId) yield break;
             if (text.Length > 280) text = text.Substring(0, 280);

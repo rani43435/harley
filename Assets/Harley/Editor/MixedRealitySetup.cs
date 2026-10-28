@@ -157,6 +157,7 @@ namespace Harley.EditorTools
             SetField(cfg, "insightPassthroughEnabled", true);
             SetField(cfg, "isPassthroughCameraAccessEnabled", true);
             SetEnum(cfg, "sceneSupport", "Supported");
+            SetEnum(cfg, "boundaryVisibilitySupport", "Supported"); // lets Harley turn the boundary off in passthrough
             SetField(cfg, "focusAware", true);
 
             t.GetMethod("CommitProjectConfig", BindingFlags.Public | BindingFlags.Static)?.Invoke(null, new[] { cfg });
