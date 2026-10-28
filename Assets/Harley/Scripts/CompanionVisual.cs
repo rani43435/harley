@@ -27,7 +27,7 @@ namespace Harley
         public CompanionVoice voice;
 
         [Header("Colours")]
-        public Color purple = new Color(0.545f, 0.361f, 0.965f);     // #8B5CF6
+        public Color purple = new Color(0.357f, 0.129f, 0.714f);     // #5B21B6 deep royal purple
         public Color lavender = new Color(0.769f, 0.710f, 0.992f);   // #C4B5FD
         public Color pink = new Color(0.957f, 0.447f, 0.714f);       // #F472B6
         public Color sadViolet = new Color(0.388f, 0.400f, 0.945f);  // #6366F1

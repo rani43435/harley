@@ -17,9 +17,10 @@ namespace Harley.EditorTools
         const string RootDir = "Assets/Harley";
         const string MatDir = RootDir + "/Materials";
         const string ConfigPath = RootDir + "/CompanionConfig.asset";
+        const string ModelPath = RootDir + "/Models/Harley.fbx";
 
         static readonly Color White = new Color(0.957f, 0.945f, 1f);     // #F4F1FF
-        static readonly Color Purple = new Color(0.545f, 0.361f, 0.965f); // #8B5CF6
+        static readonly Color Purple = new Color(0.357f, 0.129f, 0.714f); // #5B21B6 deep royal purple
         static readonly Color Lavender = new Color(0.769f, 0.710f, 0.992f); // #C4B5FD
         static readonly Color Cheek = new Color(0.96f, 0.62f, 0.85f);
         static readonly Color Bubble = new Color(0.12f, 0.06f, 0.2f, 0.82f);
@@ -249,28 +250,38 @@ namespace Harley.EditorTools
             var squash = new GameObject("SquashRoot").transform;
             squash.SetParent(visualGO.transform, false);
 
-            // Robot: a smaller, slightly wider head on a body. Window app: just the round head.
-            Transform headT = squash;
-            if (robot)
+            GameObject eyeL, eyeR, mouth, cheekL, cheekR, handL, handR;
+            var model = robot ? AssetDatabase.LoadAssetAtPath<GameObject>(ModelPath) : null;
+            if (model != null)
             {
-                headT = new GameObject("Head").transform;
-                headT.SetParent(squash, false);
-                headT.localScale = new Vector3(0.82f, 0.76f, 0.78f);
+                BuildFromModel(p, model, visualGO.transform, squash, white, purple, cheek,
+                               out eyeL, out eyeR, out mouth, out cheekL, out cheekR, out handL, out handR);
             }
-            var squashT = squash;
-            squash = headT;
-            p.body = Prim("Body", squash, Vector3.zero, Vector3.one * 0.2f, white);
-            p.sounds = p.body.AddComponent<CompanionSounds>(); // sounds come from the body
-            var eyeL = Prim("EyeL", squash, new Vector3(-0.038f, 0.016f, 0.088f), new Vector3(0.032f, 0.05f, 0.014f), purple);
-            var eyeR = Prim("EyeR", squash, new Vector3(0.038f, 0.016f, 0.088f), new Vector3(0.032f, 0.05f, 0.014f), purple);
-            var mouth = Prim("Mouth", squash, new Vector3(0f, -0.027f, 0.094f), new Vector3(0.018f, 0.006f, 0.008f), purple);
-            var cheekL = Prim("CheekL", squash, new Vector3(-0.061f, -0.014f, 0.077f), new Vector3(0.024f, 0.012f, 0.008f), cheek);
-            var cheekR = Prim("CheekR", squash, new Vector3(0.061f, -0.014f, 0.077f), new Vector3(0.024f, 0.012f, 0.008f), cheek);
-            squash = squashT;
-            Vector3 handPosL = robot ? new Vector3(-0.1f, -0.215f, 0.025f) : new Vector3(-0.128f, -0.03f, 0.02f);
-            var handL = Prim("HandL", visualGO.transform, handPosL, robot ? new Vector3(0.03f, 0.034f, 0.026f) : Vector3.one * 0.034f, white);
-            var handR = Prim("HandR", visualGO.transform, new Vector3(-handPosL.x, handPosL.y, handPosL.z), robot ? new Vector3(0.03f, 0.034f, 0.026f) : Vector3.one * 0.034f, white);
-            if (robot) BuildRobotBody(p, visualGO.transform, white, purple, handL.transform, handR.transform);
+            else
+            {
+                // Robot: a smaller, slightly wider head on a body. Window app: just the round head.
+                Transform headT = squash;
+                if (robot)
+                {
+                    headT = new GameObject("Head").transform;
+                    headT.SetParent(squash, false);
+                    headT.localScale = new Vector3(0.82f, 0.76f, 0.78f);
+                }
+                var squashT = squash;
+                squash = headT;
+                p.body = Prim("Body", squash, Vector3.zero, Vector3.one * 0.2f, white);
+                p.sounds = p.body.AddComponent<CompanionSounds>(); // sounds come from the body
+                eyeL = Prim("EyeL", squash, new Vector3(-0.038f, 0.016f, 0.088f), new Vector3(0.032f, 0.05f, 0.014f), purple);
+                eyeR = Prim("EyeR", squash, new Vector3(0.038f, 0.016f, 0.088f), new Vector3(0.032f, 0.05f, 0.014f), purple);
+                mouth = Prim("Mouth", squash, new Vector3(0f, -0.027f, 0.094f), new Vector3(0.018f, 0.006f, 0.008f), purple);
+                cheekL = Prim("CheekL", squash, new Vector3(-0.061f, -0.014f, 0.077f), new Vector3(0.024f, 0.012f, 0.008f), cheek);
+                cheekR = Prim("CheekR", squash, new Vector3(0.061f, -0.014f, 0.077f), new Vector3(0.024f, 0.012f, 0.008f), cheek);
+                squash = squashT;
+                Vector3 handPosL = robot ? new Vector3(-0.1f, -0.215f, 0.025f) : new Vector3(-0.128f, -0.03f, 0.02f);
+                handL = Prim("HandL", visualGO.transform, handPosL, robot ? new Vector3(0.03f, 0.034f, 0.026f) : Vector3.one * 0.034f, white);
+                handR = Prim("HandR", visualGO.transform, new Vector3(-handPosL.x, handPosL.y, handPosL.z), robot ? new Vector3(0.03f, 0.034f, 0.026f) : Vector3.one * 0.034f, white);
+                if (robot) BuildRobotBody(p, visualGO.transform, white, purple, handL.transform, handR.transform);
+            }
 
             // halo
             var haloGO = new GameObject("Halo");
@@ -348,6 +359,97 @@ namespace Harley.EditorTools
             v.sparkles = sparkles;
             v.glowRenderers = new Renderer[] { eyeL.GetComponent<Renderer>(), eyeR.GetComponent<Renderer>(), mouth.GetComponent<Renderer>() };
             return p;
+        }
+
+        /// <summary>
+        /// Harley's Blender model (Assets/Harley/Models/Harley.fbx): head parts go under the squash root so the
+        /// face animates as before, the body and the one-piece arms stay below, with hand targets at the arm tips.
+        /// </summary>
+        static void BuildFromModel(Parts p, GameObject model, Transform visual, Transform squash, Material white, Material purple, Material cheek,
+                                   out GameObject eyeL, out GameObject eyeR, out GameObject mouth, out GameObject cheekL, out GameObject cheekR,
+                                   out GameObject handL, out GameObject handR)
+        {
+            var inst = (GameObject)PrefabUtility.InstantiatePrefab(model);
+            PrefabUtility.UnpackPrefabInstance(inst, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
+            inst.name = "Model";
+            inst.transform.SetParent(visual, false);
+            inst.transform.localPosition = Vector3.zero;
+            inst.transform.localRotation = Quaternion.identity;
+
+            Transform Find(string n)
+            {
+                foreach (var t in inst.GetComponentsInChildren<Transform>(true)) if (t.name == n) return t;
+                return null;
+            }
+            Transform head = Find("Head"), eL = Find("EyeL"), eR = Find("EyeR");
+            // The face must look along +Z: turn the model around if the exporter flipped it
+            if (eL != null && head != null && visual.InverseTransformPoint(eL.position).z < visual.InverseTransformPoint(head.position).z)
+                inst.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+
+            // Our materials (shared with the rest of Harley), matched by name
+            Material joint = LitMaterial("Harley_Joint", new Color(0.81f, 0.78f, 0.9f), 0.05f, 0.6f);
+            Material shine = LitMaterial("Harley_Highlight", Color.white, 1.2f, 0.9f);
+            foreach (var r in inst.GetComponentsInChildren<Renderer>(true))
+            {
+                var mats = r.sharedMaterials;
+                for (int i = 0; i < mats.Length; i++)
+                {
+                    string n = mats[i] != null ? mats[i].name : "";
+                    mats[i] = n.Contains("Purple") ? purple : n.Contains("Cheek") ? cheek : n.Contains("Joint") ? joint : n.Contains("Highlight") ? shine : white;
+                }
+                r.sharedMaterials = mats;
+                r.shadowCastingMode = ShadowCastingMode.Off;
+                r.receiveShadows = false;
+            }
+            foreach (var c in inst.GetComponentsInChildren<Collider>(true)) Object.DestroyImmediate(c);
+
+            // Face parts animate with the squash root
+            foreach (string n in new[] { "Head", "EyeL", "EyeR", "Mouth", "CheekL", "CheekR" })
+            {
+                var t = Find(n);
+                if (t != null) t.SetParent(squash, true);
+            }
+            p.body = head != null ? head.gameObject : inst;
+            p.sounds = p.body.AddComponent<CompanionSounds>();
+            eyeL = eL != null ? eL.gameObject : new GameObject("EyeL");
+            eyeR = eR != null ? eR.gameObject : new GameObject("EyeR");
+            mouth = Find("Mouth") != null ? Find("Mouth").gameObject : new GameObject("Mouth");
+            cheekL = Find("CheekL") != null ? Find("CheekL").gameObject : new GameObject("CheekL");
+            cheekR = Find("CheekR") != null ? Find("CheekR").gameObject : new GameObject("CheekR");
+
+            // Hand targets at the far end of each arm
+            GameObject Target(string name, Transform arm)
+            {
+                var go = new GameObject(name);
+                go.transform.SetParent(visual, false);
+                Vector3 tip = arm != null ? arm.position + Vector3.down * 0.1f : visual.position;
+                var mf = arm != null ? arm.GetComponent<MeshFilter>() : null;
+                if (mf != null && mf.sharedMesh != null)
+                {
+                    float best = -1f;
+                    foreach (var v in mf.sharedMesh.vertices)
+                    {
+                        Vector3 w = arm.TransformPoint(v);
+                        float d = (w - arm.position).sqrMagnitude;
+                        if (d > best) { best = d; tip = w; }
+                    }
+                }
+                go.transform.position = tip;
+                return go;
+            }
+            Transform armL = Find("ArmL"), armR = Find("ArmR");
+            handL = Target("HandL", armL);
+            handR = Target("HandR", armR);
+
+            var rig = visual.gameObject.AddComponent<HarleyBodyRig>();
+            rig.visual = p.visual;
+            rig.left = new HarleyBodyRig.Arm { arm = armL, target = handL.transform };
+            rig.right = new HarleyBodyRig.Arm { arm = armR, target = handR.transform };
+            var core = Find("Core");
+            rig.core = core != null ? core.GetComponent<Renderer>() : null;
+            var glows = new System.Collections.Generic.List<Renderer>();
+            foreach (string n in new[] { "HoverRing", "HoverGlow" }) { var t = Find(n); if (t && t.GetComponent<Renderer>()) glows.Add(t.GetComponent<Renderer>()); }
+            rig.hoverGlow = glows.ToArray();
         }
 
         /// <summary>
@@ -533,11 +635,13 @@ namespace Harley.EditorTools
         {
             string path = MatDir + "/" + name + ".mat";
             var m = AssetDatabase.LoadAssetAtPath<Material>(path);
-            if (m != null) return m;
-
-            Shader sh = Shader.Find("Universal Render Pipeline/Lit");
-            if (sh == null) sh = Shader.Find("Standard");
-            m = new Material(sh) { name = name };
+            bool isNew = m == null;
+            if (isNew)
+            {
+                Shader sh = Shader.Find("Universal Render Pipeline/Lit");
+                if (sh == null) sh = Shader.Find("Standard");
+                m = new Material(sh) { name = name };
+            }
             Color albedo = baseOverride ?? color;
             albedo.a = 1f;
             if (m.HasProperty("_BaseColor")) m.SetColor("_BaseColor", albedo);
@@ -550,7 +654,7 @@ namespace Harley.EditorTools
                 m.SetColor("_EmissionColor", color * emission);
                 m.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
             }
-            AssetDatabase.CreateAsset(m, path);
+            if (isNew) AssetDatabase.CreateAsset(m, path); else EditorUtility.SetDirty(m);
             return m;
         }
 

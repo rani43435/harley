@@ -57,8 +57,10 @@ namespace Harley
             if (brain == null) brain = GetComponent<CompanionBrain>();
             if (pocket == null)
             {
+                var body = GetComponentInChildren<HarleyBodyRig>();
                 var rig = GetComponentInChildren<RobotRig>();
-                pocket = rig != null && rig.core != null ? rig.core.transform : transform;
+                pocket = body != null && body.core != null ? body.core.transform
+                       : rig != null && rig.core != null ? rig.core.transform : transform;
             }
         }
 
