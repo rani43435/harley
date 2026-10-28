@@ -105,62 +105,111 @@ namespace Harley
 
         void Update()
         {
-            // The room scan can arrive late or change: keep the real floor and furniture see-through in the blend
+            // The room scan can arrive late or change: keep the wall portals in step with it
             if (Current == Mode.Blend && Time.unscaledTime >= _nextWindowsRefresh)
             {
-                _nextWindowsRefresh = Time.unscaledTime + 5f;
-                if (_windows == null || _windows.transform.childCount == 0) BuildWindows();
+                _nextWindowsRefresh = Time.unscaledTime + 3f;
+                int walls = room != null ? room.Walls.Count : 0;
+                if (_windows == null || walls != _portalWalls) BuildWindows();
             }
         }
 
+        int _portalWalls = -1;
+        readonly List<Material> _worldMats = new List<Material>();
+        Material _skyMat;
+        readonly List<GameObject> _insideRoom = new List<GameObject>();
+
         /// <summary>
-        /// Blend: invisible "passthrough windows" over the real floor and furniture. They hide the world there,
-        /// so you keep seeing your real floor, table and couch, while walls and ceiling open onto Harley's world.
+        /// Blend ("Room + world"): your walls turn into views onto Harley's world. Each wall gets an invisible
+        /// portal that marks its pixels, and the world is drawn only there. The floor, furniture, ceiling and
+        /// everything else stay your real room.
         /// </summary>
         void BuildWindows()
         {
             if (_windows) Destroy(_windows);
             _windows = null;
-            if (Current != Mode.Blend) return;
-            var shader = Shader.Find("Harley/Passthrough Window");
+            bool blend = Current == Mode.Blend;
+            ApplyStencil(blend);
+            if (!blend) { ShowInsideRoom(true); return; }
+
+            var shader = Shader.Find("Harley/Wall Portal");
             if (shader == null) return;
             var mat = new Material(shader);
-            _windows = new GameObject("Room Windows");
+            _windows = new GameObject("Wall Portals");
+            _portalWalls = room != null ? room.Walls.Count : 0;
 
-            if (room != null && room.FloorAnchor != null)
+            Vector3 roomMin = Vector3.positiveInfinity, roomMax = Vector3.negativeInfinity;
+            if (room != null && room.Walls.Count > 0)
             {
-                Rect r = room.FloorRect;
-                var q = Quad(_windows.transform, mat);
-                q.transform.SetPositionAndRotation(room.FloorAnchor.TransformPoint(new Vector3(r.center.x, r.center.y, 0f)), room.FloorAnchor.rotation);
-                q.transform.localScale = new Vector3(r.width, r.height, 1f);
+                foreach (var (anchor, r) in room.Walls)
+                {
+                    if (anchor == null) continue;
+                    var q = Quad(_windows.transform, mat);
+                    q.name = "Wall Portal";
+                    q.transform.SetPositionAndRotation(anchor.TransformPoint(new Vector3(r.center.x, r.center.y, 0f)), anchor.rotation);
+                    q.transform.localScale = new Vector3(r.width + 0.04f, r.height + 0.04f, 1f); // a hair bigger: no seams in corners
+                    foreach (var corner in new[] { new Vector3(r.xMin, r.yMin, 0), new Vector3(r.xMax, r.yMax, 0) })
+                    {
+                        Vector3 w = anchor.TransformPoint(corner);
+                        roomMin = Vector3.Min(roomMin, w); roomMax = Vector3.Max(roomMax, w);
+                    }
+                }
             }
             else
             {
-                // No room scan: keep a 3 m circle of real floor around you
-                var disc = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                Destroy(disc.GetComponent<Collider>());
-                disc.transform.SetParent(_windows.transform, false);
-                Vector3 c = head != null ? head.position : Vector3.zero;
-                disc.transform.position = new Vector3(c.x, _floorY + 0.005f, c.z);
-                disc.transform.localScale = new Vector3(6f, 0.001f, 6f);
-                disc.GetComponent<Renderer>().sharedMaterial = mat;
+                // No room scan: a round "wall" 2.5 m around you, 3 m high
+                Vector3 c = head != null ? new Vector3(head.position.x, _floorY, head.position.z) : new Vector3(0, _floorY, 0);
+                const int n = 24; const float rad = 2.5f, hgt = 3f;
+                float seg = 2f * rad * Mathf.Tan(Mathf.PI / n) + 0.02f;
+                for (int i = 0; i < n; i++)
+                {
+                    float a = (i + 0.5f) / n * Mathf.PI * 2f;
+                    Vector3 dir = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a));
+                    var q = Quad(_windows.transform, mat);
+                    q.transform.SetPositionAndRotation(c + dir * rad + Vector3.up * hgt * 0.5f, Quaternion.LookRotation(dir, Vector3.up));
+                    q.transform.localScale = new Vector3(seg, hgt, 1f);
+                }
+                roomMin = c - new Vector3(rad, 0, rad); roomMax = c + new Vector3(rad, hgt, rad);
             }
 
-            if (room != null)
-                foreach (var t in room.Things)
+            // World things that would stand inside your room are hidden (they'd look painted onto the walls)
+            _insideRoom.Clear();
+            if (_world != null && roomMin.x < roomMax.x)
+            {
+                foreach (Transform child in _world.transform)
                 {
-                    if (!t.isVolume) continue;
-                    var box = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                    Destroy(box.GetComponent<Collider>());
-                    box.name = "Window " + t.name;
-                    box.transform.SetParent(_windows.transform, false);
-                    box.transform.position = t.center;
-                    box.transform.rotation = t.anchor != null ? Quaternion.Euler(0f, t.anchor.eulerAngles.y, 0f) : Quaternion.identity;
-                    box.transform.localScale = t.size + Vector3.one * 0.02f;
-                    var r = box.GetComponent<Renderer>();
-                    r.sharedMaterial = mat;
-                    r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    if (child.name == "Sky" || child.name == "Ocean" || child.name == "Beach" || child.name == "Ground") continue;
+                    Vector3 p = child.position;
+                    if (p.x > roomMin.x - 0.6f && p.x < roomMax.x + 0.6f && p.z > roomMin.z - 0.6f && p.z < roomMax.z + 0.6f)
+                        _insideRoom.Add(child.gameObject);
                 }
+                var lanterns = _world.transform.Find("Lanterns");
+                if (lanterns != null)
+                    foreach (Transform l in lanterns)
+                    {
+                        Vector3 p = l.position;
+                        if (p.x > roomMin.x - 0.6f && p.x < roomMax.x + 0.6f && p.z > roomMin.z - 0.6f && p.z < roomMax.z + 0.6f)
+                            _insideRoom.Add(l.gameObject);
+                    }
+            }
+            ShowInsideRoom(false);
+        }
+
+        void ShowInsideRoom(bool show)
+        {
+            foreach (var go in _insideRoom) if (go) go.SetActive(show);
+        }
+
+        /// <summary>World drawn everywhere (full world) or only through the wall portals (blend).</summary>
+        void ApplyStencil(bool blend)
+        {
+            float comp = blend ? 3f : 8f; // Equal : Always
+            foreach (var m in _worldMats) if (m && m.HasProperty("_StencilComp")) m.SetFloat("_StencilComp", comp);
+            if (_skyMat)
+            {
+                if (_skyMat.HasProperty("_StencilComp")) _skyMat.SetFloat("_StencilComp", comp);
+                _skyMat.renderQueue = blend ? 2450 : 1000; // after the portals in the blend
+            }
         }
 
         static GameObject Quad(Transform parent, Material mat)
@@ -189,7 +238,7 @@ namespace Harley
             // Sky
             var sky = Prim(PrimitiveType.Sphere, "Sky", w, c, Vector3.one * 900f, null);
             var skyShader = Shader.Find("Harley/Sky");
-            if (skyShader != null) sky.GetComponent<Renderer>().sharedMaterial = new Material(skyShader);
+            if (skyShader != null) { _skyMat = new Material(skyShader); sky.GetComponent<Renderer>().sharedMaterial = _skyMat; }
 
             // Ground island, a lake, a beach ring
             var grass = Lit(new Color(0.36f, 0.52f, 0.42f), 0.15f);
@@ -279,6 +328,15 @@ namespace Harley
 
         Material Lit(Color col, float smooth)
         {
+            var ws = Shader.Find("Harley/World");
+            if (ws != null)
+            {
+                var hm = new Material(ws);
+                hm.SetColor("_BaseColor", col);
+                hm.SetFloat("_Shine", smooth);
+                _worldMats.Add(hm);
+                return hm;
+            }
             var m = litTemplate != null ? new Material(litTemplate) : new Material(Shader.Find("Universal Render Pipeline/Lit"));
             if (m.HasProperty("_BaseColor")) m.SetColor("_BaseColor", col);
             if (m.HasProperty("_Color")) m.SetColor("_Color", col);
@@ -289,6 +347,15 @@ namespace Harley
 
         Material Glow(Color col, float k)
         {
+            var ws = Shader.Find("Harley/World");
+            if (ws != null)
+            {
+                var hm = new Material(ws);
+                hm.SetColor("_BaseColor", col * 0.3f);
+                hm.SetColor("_EmissionColor", col * Mathf.Min(k, 1.2f));
+                _worldMats.Add(hm);
+                return hm;
+            }
             var m = glowTemplate != null ? new Material(glowTemplate) : Lit(col, 0.5f);
             if (m.HasProperty("_BaseColor")) m.SetColor("_BaseColor", col * 0.3f);
             if (m.HasProperty("_EmissionColor")) { m.EnableKeyword("_EMISSION"); m.SetColor("_EmissionColor", col * k); }

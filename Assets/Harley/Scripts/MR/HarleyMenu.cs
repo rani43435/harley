@@ -14,7 +14,7 @@ namespace Harley
         public CompanionBrain brain;
         public bool showOnStart = true;
 
-        const string PrefFollow = "harley.follow", PrefComments = "harley.comments", PrefVoice = "harley.voice";
+        const string PrefFollow = "harley.follow", PrefComments = "harley.comments", PrefVoice = "harley.voice", PrefWake = "harley.wake";
 
         TextMeshProUGUI _status;
         PanelButton _talk;
@@ -84,9 +84,11 @@ namespace Harley
             // Settings
             y += 50f;
             var cfg = brain != null ? brain.config : null;
-            PlaceTL(AddToggle(c, "Follow me", Pref(PrefFollow, true), v => { Save(PrefFollow, v); Follow(v); }).rect, L, y, 140, 42);
-            PlaceTL(AddToggle(c, "Comments", Pref(PrefComments, cfg == null || cfg.proactiveComments), v => { Save(PrefComments, v); if (cfg) cfg.proactiveComments = v; }).rect, L + 148, y, 140, 42);
-            PlaceTL(AddToggle(c, "Voice", Pref(PrefVoice, cfg == null || cfg.witVoiceOutput), v => { Save(PrefVoice, v); if (cfg) { cfg.witVoiceOutput = v; cfg.deviceVoice = v; } }).rect, L + 296, y, 140, 42);
+            const float tw = 103f, tg = 8f;
+            PlaceTL(AddToggle(c, "Follow", Pref(PrefFollow, true), v => { Save(PrefFollow, v); Follow(v); }).rect, L, y, tw, 42);
+            PlaceTL(AddToggle(c, "Comments", Pref(PrefComments, cfg == null || cfg.proactiveComments), v => { Save(PrefComments, v); if (cfg) cfg.proactiveComments = v; }).rect, L + (tw + tg), y, tw, 42);
+            PlaceTL(AddToggle(c, "Voice", Pref(PrefVoice, cfg == null || cfg.witVoiceOutput), v => { Save(PrefVoice, v); if (cfg) { cfg.witVoiceOutput = v; cfg.deviceVoice = v; } }).rect, L + 2 * (tw + tg), y, tw, 42);
+            PlaceTL(AddToggle(c, "Hi Harley", Pref(PrefWake, cfg == null || cfg.wakeWord), v => { Save(PrefWake, v); if (cfg) cfg.wakeWord = v; }).rect, L + 3 * (tw + tg), y, tw, 42);
 
             y += 50f;
             PlaceTL(AddButton(c, "Come here", () => brain?.movement?.Perform(CompanionAction.ComeClose), null, 18).rect, L, y, 140, 42);
@@ -173,6 +175,7 @@ namespace Harley
             {
                 cfg.proactiveComments = Pref(PrefComments, cfg.proactiveComments);
                 cfg.witVoiceOutput = Pref(PrefVoice, cfg.witVoiceOutput);
+                cfg.wakeWord = Pref(PrefWake, cfg.wakeWord);
                 cfg.deviceVoice = cfg.witVoiceOutput;
             }
             if (!Pref(PrefFollow, true)) Follow(false);
@@ -207,7 +210,7 @@ namespace Harley
             if (cfg == null || !cfg.HasBrainKey) s = "<color=#F87171>No " + (cfg != null ? cfg.provider.ToString() : "AI") + " API key in the config</color>";
             else if (voice != null && voice.IsListening) s = "<color=#4ADE80>Listening...</color>";
             else if (voice != null && !voice.HasDictation) s = "Talk needs a free Wit token (config). Type works now.";
-            else s = "Talk, or just look at Harley to talk.";
+            else s = "Say \"Hi Harley\", or tap Talk.";
             _status.text = s;
             if (_talk != null && _talk.label != null) _talk.label.text = voice != null && voice.IsListening ? "Stop" : "Talk";
             var tools = HarleyTools.Instance;

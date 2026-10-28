@@ -76,8 +76,9 @@ public class HarleyWebView {
         "function ok(e){if(!e)return false;if(e.isContentEditable)return true;var t=(e.tagName||'').toLowerCase();" +
         "if(t=='textarea')return true;if(t!='input')return false;var y=(e.type||'text').toLowerCase();" +
         "return ['text','search','email','url','tel','password','number'].indexOf(y)>=0;}" +
-        "document.addEventListener('focusin',function(v){var e=v.target;if(ok(e))HarleyInput.focus(e.value||e.innerText||'',e.type||'');},true);" +
-        "document.addEventListener('focusout',function(v){if(ok(v.target))HarleyInput.blur();},true);" +
+        "function real(v){var e=(v.composedPath&&v.composedPath()[0])||v.target;return e;}" +
+        "document.addEventListener('focusin',function(v){var e=real(v);if(ok(e))HarleyInput.focus(e.value||e.innerText||'',e.type||'');},true);" +
+        "document.addEventListener('focusout',function(v){if(ok(real(v)))HarleyInput.blur();},true);" +
         "})();";
 
     /** youtube.com/tv only opens for TVs: same Samsung TV browser identity as the Ambient Video app. */
@@ -230,7 +231,8 @@ public class HarleyWebView {
     /** Replaces the text of the focused field (Harley's keyboard gives back the whole text). */
     public void setText(final String text) {
         final String js =
-            "(function(t){var e=document.activeElement;if(!e)return;" +
+            "(function(t){var e=document.activeElement;while(e&&e.shadowRoot&&e.shadowRoot.activeElement)e=e.shadowRoot.activeElement;" +
+            "if(e&&e.tagName&&e.tagName.toLowerCase()=='iframe'){try{e=e.contentDocument.activeElement;}catch(x){}}if(!e)return;" +
             "if(e.isContentEditable){e.focus();document.execCommand('selectAll',false,null);document.execCommand('insertText',false,t);return;}" +
             "if(!('value' in e))return;" +
             "var p=Object.getPrototypeOf(e),d=Object.getOwnPropertyDescriptor(p,'value');" +
@@ -294,7 +296,8 @@ public class HarleyWebView {
     /** Types text into whatever field is focused on the page. */
     public void typeText(final String text) {
         final String js =
-            "(function(t){var e=document.activeElement;if(!e)return;" +
+            "(function(t){var e=document.activeElement;while(e&&e.shadowRoot&&e.shadowRoot.activeElement)e=e.shadowRoot.activeElement;" +
+            "if(e&&e.tagName&&e.tagName.toLowerCase()=='iframe'){try{e=e.contentDocument.activeElement;}catch(x){}}if(!e)return;" +
             "if(e.isContentEditable){document.execCommand('insertText',false,t);return;}" +
             "if(!('value' in e))return;" +
             "var s=e.selectionStart!=null?e.selectionStart:e.value.length,f=e.selectionEnd!=null?e.selectionEnd:s;" +

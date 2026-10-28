@@ -165,6 +165,8 @@ namespace Harley.EditorTools
             var wit = root.AddComponent<WitSpeech>();
             wit.config = config;
             voice.wit = wit;
+            var wake = root.AddComponent<HarleyWake>();   // "Hi Harley"
+            wake.config = config; wake.voice = voice; wake.wit = wit;
 
             // Floating UI: pointer for hands/controllers, the settings menu, the wrist button
             var ui = new GameObject("Harley UI");

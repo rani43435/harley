@@ -10,6 +10,7 @@ Shader "Harley/Sky"
         _SunDir ("Sun direction", Vector) = (0.3, 0.12, 0.95, 0)
         _SunColor ("Sun", Color) = (1, 0.8, 0.6, 1)
         _Stars ("Stars", Range(0, 1)) = 0.7
+        [Enum(UnityEngine.Rendering.CompareFunction)] _StencilComp ("Stencil compare", Float) = 8
     }
     SubShader
     {
@@ -18,6 +19,7 @@ Shader "Harley/Sky"
         {
             Cull Front
             ZWrite Off
+            Stencil { Ref 1 Comp [_StencilComp] }
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag

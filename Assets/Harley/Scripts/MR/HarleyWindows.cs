@@ -141,7 +141,7 @@ namespace Harley
         protected override void Awake()
         {
             base.Awake();
-            barHeight = 0f; // no grab bar: it lives under your windows
+            barHeight = 0.022f; // grab bar underneath: move the dock wherever you like
             size = new Vector2(Width(MaxApps) / PixelsPerMeter, (Btn + Pad * 2) / PixelsPerMeter);
         }
 

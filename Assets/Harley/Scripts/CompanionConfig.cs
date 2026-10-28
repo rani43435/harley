@@ -49,6 +49,12 @@ namespace Harley
         [Tooltip("Gemini voice name, e.g. Leda, Kore, Puck, Aoede. Empty = Leda.")]
         public string geminiVoice = "Leda";
 
+        [Header("Hi Harley")]
+        [Tooltip("Say \"Hi Harley\" (or \"Hey Harley\") to start talking, like Siri. Uses a short speech check each time you speak, so it counts against the free AI limits.")]
+        public bool wakeWord = true;
+        [Tooltip("At most this many speech checks per day for the wake word (protects the free quota).")]
+        public int wakeChecksPerDay = 120;
+
         [Header("Voice (headset's own, free and offline)")]
         [Tooltip("Without Wit, Harley talks with the headset's built-in text-to-speech (if it has one). Off = babble voice.")]
         public bool deviceVoice = true;

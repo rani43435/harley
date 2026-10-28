@@ -167,6 +167,30 @@ namespace Harley
             }
         }
 
+        /// <summary>Turns a short recording (16 kHz mono 16-bit) into text with Wit or Gemini, without touching the Talk state.</summary>
+        public IEnumerator TranscribeOnce(byte[] pcm, Action<string> done)
+        {
+            string text = null;
+            if (UsesGemini)
+            {
+                yield return GeminiClient.Transcribe(config, pcm, s => text = s, e => text = null);
+            }
+            else if (HasToken)
+            {
+                using (var req = new UnityWebRequest($"{Api}/dictation?v={ApiVersion}", UnityWebRequest.kHttpVerbPOST))
+                {
+                    req.uploadHandler = new UploadHandlerRaw(pcm);
+                    req.downloadHandler = new DownloadHandlerBuffer();
+                    req.SetRequestHeader("Authorization", "Bearer " + config.witToken.Trim());
+                    req.SetRequestHeader("Content-Type", "audio/raw;encoding=signed-integer;bits=16;rate=16000;endian=little");
+                    req.timeout = 15;
+                    yield return req.SendWebRequest();
+                    if (req.result == UnityWebRequest.Result.Success) text = ParseDictation(req.downloadHandler.text);
+                }
+            }
+            done(text);
+        }
+
         IEnumerator DictateGemini(byte[] pcm)
         {
             IsTranscribing = true;

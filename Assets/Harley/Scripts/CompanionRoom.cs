@@ -42,6 +42,8 @@ namespace Harley
         public Transform FloorAnchor { get; private set; }
         public Rect FloorRect { get; private set; }
         /// <summary>The room's ceiling, same idea.</summary>
+        /// <summary>Wall planes from the room scan (anchor + rectangle in its local XY).</summary>
+        public readonly List<(Transform anchor, Rect rect)> Walls = new List<(Transform, Rect)>();
         public Transform CeilingAnchor { get; private set; }
         public Rect CeilingRect { get; private set; }
 
@@ -113,6 +115,7 @@ namespace Harley
             if (!(_anchors.GetValue(room) is IList anchors)) return;
 
             _things.Clear();
+            Walls.Clear();
             var counts = new Dictionary<string, int>();
             float? floor = null;
 
@@ -130,7 +133,13 @@ namespace Harley
                     else { CeilingAnchor = comp.transform; CeilingRect = rect; }
                     continue;
                 }
-                if (!Kinds.TryGetValue(first, out string kind)) continue; // walls, ceiling, global mesh...
+                if (first == "WALL_FACE" || first == "INVISIBLE_WALL_FACE")
+                {
+                    object wr = _plane != null ? _plane.GetValue(a) : null;
+                    if (wr is Rect wrect) Walls.Add((comp.transform, wrect));
+                    continue;
+                }
+                if (!Kinds.TryGetValue(first, out string kind)) continue; // ceiling, global mesh...
 
                 var thing = new Thing { kind = kind, anchor = comp.transform };
                 Transform tr = comp.transform;

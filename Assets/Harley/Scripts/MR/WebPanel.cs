@@ -157,8 +157,9 @@ namespace Harley
             _tvKeys.transform.SetParent(c, false);
             var tk = (RectTransform)_tvKeys.transform;
             Place(tk, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
-            float kw = 46f, total = kw * 4 + 60 + 4 * 6;
+            float kw = 46f, total = kw * 4 + 60 + 84 + 5 * 6;
             float kx = x + Mathf.Max(0f, (pillW - total) * 0.5f);
+            PlaceTL(AddButton(tk, "Search", SearchTv, ghost, 16).rect, kx, y, 84, h); kx += 84 + 6;
             foreach (var (label, code) in new[] { ("<", KeyLeft), ("^", KeyUp), ("v", KeyDown), (">", KeyRight) })
             { int k = code; PlaceTL(AddButton(tk, label, () => Key(k), ghost, 22).rect, kx, y, kw, h); kx += kw + 6; }
             PlaceTL(AddButton(tk, "OK", () => Key(KeyEnter), primary, 17).rect, kx, y, 60, h);
@@ -206,6 +207,15 @@ namespace Harley
         GameObject _pill;
         GameObject _noteBg;
         float _noteUntil;
+
+        /// <summary>YouTube TV: type what to look for with Harley's keyboard, open the results.</summary>
+        void SearchTv()
+        {
+            HarleyKeyboard.Open("", "Search YouTube", q =>
+            {
+                if (!string.IsNullOrWhiteSpace(q)) Load("https://www.youtube.com/tv#/search?q=" + Uri.EscapeDataString(q.Trim()));
+            });
+        }
 
         void AskAddress()
         {
