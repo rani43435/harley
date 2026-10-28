@@ -23,7 +23,7 @@ namespace Harley.EditorTools
                 var mpb = new MaterialPropertyBlock();
                 if (vis.glowRenderers != null)
                     foreach (var r in vis.glowRenderers)
-                        if (r) { r.GetPropertyBlock(mpb); mpb.SetColor("_BaseColor", vis.purple * 0.2f); mpb.SetColor("_EmissionColor", vis.purple * 2.4f); r.SetPropertyBlock(mpb); }
+                        if (r) { r.GetPropertyBlock(mpb); mpb.SetColor("_BaseColor", vis.purple * 0.2f); mpb.SetColor("_EmissionColor", vis.purple * 1.3f); r.SetPropertyBlock(mpb); }
             }
             var bounds = new Bounds(h.position, Vector3.zero);
             foreach (var r in h.GetComponentsInChildren<Renderer>()) if (r.enabled && r.bounds.size.magnitude < 0.8f && Vector3.Distance(r.bounds.center, h.position) < 0.45f) bounds.Encapsulate(r.bounds);

@@ -414,7 +414,7 @@ namespace Harley
                 Color albedo = c * 0.2f; albedo.a = 1f; // dark base, the glow comes from emission
                 _mpb.SetColor(BaseColorId, albedo);
                 _mpb.SetColor(ColorId, albedo);
-                _mpb.SetColor(EmissionId, c * intensity * 2.4f); // HDR: glows visibly
+                _mpb.SetColor(EmissionId, c * intensity * 1.3f); // a bit over 1: glows, keeps the deep purple
                 r.SetPropertyBlock(_mpb);
             }
         }

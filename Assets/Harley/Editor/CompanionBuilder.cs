@@ -230,7 +230,7 @@ namespace Harley.EditorTools
 
             Material white = LitMaterial("Harley_White", White, 0.15f, 0.8f);
             // Dark base + purple emission = solid glowing purple that doesn't wash out to pink/white.
-            Material purple = LitMaterial("Harley_Purple", Purple, 2.4f, 0.75f, Purple * 0.2f);
+            Material purple = LitMaterial("Harley_Purple", Purple, 1.3f, 0.75f, Purple * 0.2f);
             Material cheek = LitMaterial("Harley_Cheek", Cheek, 0.5f, 0.4f);
             Material glow = SpriteMaterial("Harley_Glow", Color.white, null);
             Material bubble = SpriteMaterial("Harley_Bubble", Bubble, null);
