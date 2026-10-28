@@ -112,6 +112,7 @@ namespace Harley
             if (Words(name, "واتساب", "واتس")) return Get("WhatsApp");
             if (Words(name, "جوجل", "غوغل", "google")) return Get("Google");
             if (Words(name, "hbo", "اتش بي او")) return Get("HBO Max");
+            if (Words(name, "كلاود", "claude")) return Get("Claude");
             return null;
         }
 

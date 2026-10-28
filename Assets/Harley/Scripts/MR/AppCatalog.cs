@@ -32,6 +32,8 @@ namespace Harley
                       note = "Netflix is protected, so videos won't play here." },
             new App { name = "Twitch",    url = "https://m.twitch.tv/",        letter = "T", color = C(0.47f, 0.32f, 0.86f), identity = Identity.Phone },
             new App { name = "WhatsApp",  url = "https://web.whatsapp.com/",   letter = "W", color = C(0.22f, 0.62f, 0.47f), identity = Identity.Desktop },
+            new App { name = "Claude",    url = "https://claude.ai/",          letter = "C", color = C(0.80f, 0.47f, 0.33f), identity = Identity.Desktop,
+                      note = "Sign in with your email (Google sign-in may not work inside an app window)." },
             new App { name = "Google",    url = "https://www.google.com/",     letter = "G", color = C(0.27f, 0.47f, 0.86f), identity = Identity.Phone },
         };
 
