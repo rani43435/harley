@@ -23,7 +23,7 @@ namespace Harley
         const string JsonRule =
             "\n\nAnswer with ONLY one JSON object, no markdown, exactly these keys: " +
             "{\"say\": string, \"emotion\": one of neutral|happy|excited|curious|surprised|sad|sleepy|love, " +
-            "\"action\": one of stay|follow|come_close|wander|look_at_thing|sit|hide|spin|dance|wave|go_to|give|take_back|hide_and_seek|sleep|celebrate, " +
+            "\"action\": one of stay|follow|come_close|wander|look_at_thing|sit|hide|spin|dance|wave|go_to|give|take_back|hide_and_seek|sleep|celebrate|open_app|close_app, " +
             "\"target\": string, \"remember\": string, \"forget\": boolean}";
 
         public static IEnumerator Send(CompanionConfig config, string system, List<ChatTurn> turns, CompanionTools tools,

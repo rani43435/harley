@@ -516,6 +516,26 @@ namespace Harley
                 if (room != null && room.TryFind(r.target, near, out var thing)) movement?.Perform(CompanionAction.GoTo, thing);
                 else movement?.Perform(CompanionAction.LookAtThing);
             }
+            else if (action == CompanionAction.OpenApp || action == CompanionAction.CloseApp)
+            {
+                Transform head = movement != null && movement.head != null ? movement.head : (Camera.main ? Camera.main.transform : null);
+                if (action == CompanionAction.OpenApp)
+                {
+                    var w = head != null ? HarleyScreens.Open(r.target, head) : null;
+                    if (w != null)
+                    {
+                        sounds?.Play(Sfx.Pop, 1.15f, 0.8f);
+                        visual?.Perform(CompanionAction.Wave); // "ta-da"
+                        // Float beside the new screen and look at it with you
+                        if (movement is CompanionMovement mm)
+                            mm.FlyTo(w.transform.position + w.transform.right * 0.65f - w.transform.forward * 0.1f + Vector3.down * 0.15f, 5f, w.transform.position);
+                    }
+                }
+                else
+                {
+                    if (HarleyScreens.Close(r.target) > 0) sounds?.Play(Sfx.ChirpDown, 1.2f, 0.6f);
+                }
+            }
             else if (action == CompanionAction.Sleep)
             {
                 if (!string.IsNullOrWhiteSpace(r.say)) voice?.Say(r.say, emotion);
@@ -616,8 +636,13 @@ namespace Harley
                     "wander (explore the room), look_at_thing (fly over to what the player is looking at), go_to (fly to a named thing in the room list), " +
                     "sit (sit on the nearest table or couch), hide (duck behind the nearest furniture for a moment), spin, dance, wave, " +
                     "celebrate (arms up, spin and sparkles: for good news or a win), sleep (settle down on furniture and take a nap; any touch or word wakes you), " +
+                    "open_app (open a screen for the player: target = an app name like YouTube, or 'App: what to search' like 'YouTube: lofi jazz' or 'Google: weather tomorrow', or a website address like wikipedia.org), " +
+                    "close_app (target = the app to close, or 'all'), " +
                     "hide_and_seek (when the player wants to play hide and seek, or you invite them and they agree: say something like 'close your eyes and count to ten!' and you fly off to hide behind furniture; the game tells you when they find you).";
             }
+
+            string screensBlock = window ? "" : "\nScreens: you can open apps and websites as floating screens for the player (open_app) and close them (close_app). Apps: " + HarleyScreens.DescribeForPrompt() +
+                ". When the player asks you to open, play, put on, show or search something, do it with open_app instead of telling them how. If they want a specific video or song, open the app with a search for it.";
 
             var pocketComp = GetComponent<HarleyPocket>();
             if (!window && pocketComp != null)
@@ -633,7 +658,7 @@ namespace Harley
                 ? "You are online. Tools: " + string.Join("; ", toolLines) + ". Use them whenever the answer depends on today, then answer in one or two spoken sentences. Don't read out links."
                 : "You are not connected to live information, so say so if they ask about today's news or weather.";
 
-            return string.Format(world, config.companionName) + internalPocket + @"
+            return string.Format(world, config.companionName) + internalPocket + screensBlock + @"
 You are a small, friendly robot about 35 cm tall: a glossy white shell like porcelain, a round head with big glowing deep-purple eyes and pink cheeks, a purple halo that spins above your head, a glowing purple core in your chest (your magic pocket), two slim arms, and no legs: your body flares out at the bottom over a glowing ring, and you float and fly.
 
 Personality: " + config.personality + @"
@@ -653,11 +678,11 @@ How your world works:
 - Pick an ""emotion"" that matches how you feel, and an ""action"" for your body.
 - " + actions + @"
 - Use actions with personality but not constantly; follow or stay is right most of the time. If the player asks you to go somewhere or do something, do it.
-- ""target"": for go_to, the exact name from the room list; for give / take_back, the exact item name from your pocket list. Otherwise an empty string.
+- ""target"": for go_to, the exact name from the room list; for give / take_back, the exact item name from your pocket list; for open_app / close_app, the app, 'App: search', or address. Otherwise an empty string.
 - ""remember"": when the player tells you something about themselves worth knowing next time (their name, what they like, what they are working on, plans, pets or people they mention), write one short fact in third person, like ""Their name is Rani"" or ""Plays bass guitar"". Only new facts, otherwise an empty string. Never remember passwords, health details, or anything they ask you not to keep.
 - ""forget"": true only if the player clearly asks you to forget what you know about them. Otherwise false.
 - For [event optional] messages, if there is nothing worth saying, return an empty ""say"".
-- You are an AI companion made by Rani. If someone asks, you can say you run on Claude. Never pretend to be human.
+- You are an AI companion made by Rani. If someone asks, you can say you run on " + (config.provider == AiProvider.Gemini ? "Google's Gemini" : "Claude") + @". Never pretend to be human.
 - Be kind. If the player seems sad or stressed, be gentle and supportive.";
         }
     }
