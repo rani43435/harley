@@ -55,9 +55,9 @@ namespace Harley
             float talk = voice != null ? voice.TalkAmount : 0f;
             Color c = visual != null ? visual.purple : new Color(0.36f, 0.13f, 0.71f);
             float t = Time.time;
-            if (core) Glow(core, c * (1f + Mathf.Sin(t * 2.2f) * 0.25f + talk * 1.6f));
+            if (core) Glow(core, c * 2.2f * (1f + Mathf.Sin(t * 2.2f) * 0.25f + talk * 1.6f));
             if (hoverGlow != null)
-                foreach (var r in hoverGlow) if (r) Glow(r, c * (1.1f + Mathf.Sin(t * 3.1f) * 0.3f));
+                foreach (var r in hoverGlow) if (r) Glow(r, c * 2.2f * (1.1f + Mathf.Sin(t * 3.1f) * 0.3f));
         }
 
         void Aim(Arm a)
