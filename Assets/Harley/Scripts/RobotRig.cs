@@ -53,6 +53,13 @@ namespace Harley
             legL.side = -1f; legR.side = 1f;
         }
 
+        /// <summary>Poses the arms and legs right now (also works outside Play mode, e.g. for a portrait).</summary>
+        public void PoseNow()
+        {
+            if (_mpb == null) Awake();
+            LateUpdate();
+        }
+
         void LateUpdate()
         {
             float dt = Time.deltaTime, t = Time.time;
