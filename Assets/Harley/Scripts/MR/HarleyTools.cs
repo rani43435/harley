@@ -4,18 +4,17 @@ using UnityEngine;
 namespace Harley
 {
     /// <summary>
-    /// Things to do with Harley in your room (or in Harley's world). Pick a tool in the menu,
-    /// then point with a hand or controller at empty space and pull the trigger / pinch:
-    ///  Draw  - paint glowing lines in the air
-    ///  Add   - drop things into the room: a ball, a box, a plant, a star, a gift (they fall onto your real table)
+    /// Things to do with Harley in your room (or in Harley's world). Pick a tool in the menu:
+    ///  Add   - point and pull the trigger / pinch: a ball, a box, a plant, a star, a gift (they fall onto your real table)
     ///  Break - smash the things you added, or crack your walls and furniture (just for fun, it's virtual)
     ///  Cover - throw a sheet over a piece of real furniture to hide it (point again to uncover)
-    ///  Fetch - throw a ball and Harley flies after it and brings it back
+    ///  Fetch - a ball appears: grab it with your hand, throw it, Harley flies after it and brings it back
+    ///  Fight - you get a sword, Harley gets one too: swing at her, block her swings, first to 5 wins
     /// Harley notices and reacts.
     /// </summary>
     public class HarleyTools : MonoBehaviour
     {
-        public enum Tool { None, Draw, Add, Break, Cover, Fetch }
+        public enum Tool { None, Draw, Add, Break, Cover, Fetch, Fight }
 
         public static HarleyTools Instance { get; private set; }
 
@@ -41,14 +40,6 @@ namespace Harley
         float _strokeStart;
         int _strokes;
 
-        // fetch
-        enum Fetch { Idle, Holding, Flying, Going, Carrying }
-        Fetch _fetch;
-        Rigidbody _ball;
-        int _ballHand = 1;
-        readonly Queue<(float t, Vector3 p)> _handTrail = new Queue<(float, Vector3)>();
-        float _fetchTimer;
-
         void Awake() { Instance = this; }
 
         void Start()
@@ -59,10 +50,12 @@ namespace Harley
 
         public void SetTool(Tool t)
         {
-            if (Current == Tool.Fetch && t != Tool.Fetch) EndFetch();
+            if (Current == Tool.Fetch) EndFetch();
+            if (Current == Tool.Fight) EndFight();
             Current = Current == t ? Tool.None : t; // pressing the active tool again turns it off
-            HarleyPointer.ShowFreeRay = Current != Tool.None;
+            HarleyPointer.ShowFreeRay = Current == Tool.Add || Current == Tool.Break || Current == Tool.Cover;
             if (Current == Tool.Fetch) StartFetch();
+            if (Current == Tool.Fight) StartFight();
         }
 
         public void NextItem() => _item = (_item + 1) % Items.Length;
@@ -75,12 +68,13 @@ namespace Harley
             foreach (var g in _added) if (g) Destroy(g);
             foreach (var kv in _covers) if (kv.Value) Destroy(kv.Value);
             _drawings.Clear(); _added.Clear(); _covers.Clear();
-            EndFetch();
+            if (Current == Tool.Fetch || Current == Tool.Fight) SetTool(Tool.None);
         }
 
         void Update()
         {
             if (Current == Tool.Fetch) { UpdateFetch(); return; }
+            if (Current == Tool.Fight) { UpdateFight(); return; }
             if (Current == Tool.None) return;
 
             // Right hand first, else left
@@ -330,17 +324,36 @@ namespace Harley
 
         // ---------- fetch ----------
 
+        // A real ball for your hand: grab it (grip / pinch), throw it, Harley brings it back and holds it out for you.
+        enum Fetch { Idle, Waiting, InHand, Flying, Going, Carrying, Offering }
+        Fetch _fetch;
+        Rigidbody _ball;
+        Grabbable _ballGrab;
+        float _fetchTimer;
+
         void StartFetch()
         {
-            _fetch = Fetch.Holding;
             if (_ball == null)
             {
                 var go = MakeItem("Ball", Vector3.zero);
                 go.name = "Fetch Ball";
+                Destroy(go.GetComponent<Breakable>());
                 _ball = go.GetComponent<Rigidbody>();
+                _ballGrab = go.AddComponent<Grabbable>();
+                _ballGrab.reach = 0.14f;
+                _ballGrab.Grabbed += OnBallGrabbed;
+                _ballGrab.Released += OnBallReleased;
+            }
+            // Float it in front of you, ready to grab
+            var head = Camera.main != null ? Camera.main.transform : null;
+            if (head != null)
+            {
+                Vector3 f = head.forward; f.y = 0; f = f.sqrMagnitude > 0.01f ? f.normalized : Vector3.forward;
+                _ball.transform.position = head.position + f * 0.35f + Vector3.down * 0.25f;
             }
             _ball.isKinematic = true;
-            brain?.React("The player wants to play fetch with a ball: they will throw it and you fly to get it. Get excited!", Emotion.Excited);
+            _fetch = Fetch.Waiting;
+            brain?.React("The player wants to play fetch: a ball is floating in front of them. When they throw it, you fly to get it and bring it back. Get excited!", Emotion.Excited);
         }
 
         void EndFetch()
@@ -348,6 +361,23 @@ namespace Harley
             _fetch = Fetch.Idle;
             if (_ball) Destroy(_ball.gameObject);
             _ball = null;
+            _ballGrab = null;
+            if (brain != null && brain.visual != null) brain.visual.reachTargetR = null;
+        }
+
+        void OnBallGrabbed()
+        {
+            if (_fetch == Fetch.Offering) { brain?.sounds?.Play(Sfx.ChirpUp, 1.2f, 0.8f); brain?.visual?.FlashEmotion(Emotion.Happy, 2f); }
+            if (brain != null && brain.visual != null) brain.visual.reachTargetR = null;
+            _fetch = Fetch.InHand;
+        }
+
+        void OnBallReleased(Vector3 v)
+        {
+            _fetch = Fetch.Flying;
+            _fetchTimer = Time.time;
+            if (_ball) { _ball.isKinematic = false; _ball.useGravity = true; }
+            if (v.magnitude > 1.2f) { brain?.sounds?.Play(Sfx.Whee, 1.2f, 0.8f); brain?.visual?.FlashEmotion(Emotion.Excited, 2f); }
         }
 
         void UpdateFetch()
@@ -357,46 +387,22 @@ namespace Harley
 
             switch (_fetch)
             {
-                case Fetch.Holding:
-                {
-                    // Ball sits in front of the hand; pull and hold the trigger / pinch, release to throw.
-                    int id = HarleyPointer.Free[_ballHand].valid ? _ballHand : 1 - _ballHand;
-                    var ray = HarleyPointer.Free[id];
-                    if (!ray.valid) return;
-                    _ballHand = id;
-                    Vector3 p = ray.origin + ray.direction * 0.1f;
-                    _ball.transform.position = p;
-                    _handTrail.Enqueue((Time.time, p));
-                    while (_handTrail.Count > 0 && Time.time - _handTrail.Peek().t > 0.1f) _handTrail.Dequeue();
-
-                    if (ray.pressed) _was[id] = true;
-                    else if (_was[id])
-                    {
-                        _was[id] = false;
-                        Vector3 v = Vector3.zero;
-                        if (_handTrail.Count >= 2) { var first = _handTrail.Peek(); float span = Time.time - first.t; if (span > 0.01f) v = (p - first.p) / span; }
-                        if (v.magnitude < 0.8f) v = ray.direction * 3f; // a gentle toss if the hand didn't move
-                        _ball.isKinematic = false;
-                        _ball.linearVelocity = v * 1.3f;
-                        _fetch = Fetch.Flying;
-                        _fetchTimer = Time.time;
-                        brain?.sounds?.Play(Sfx.Whee, 1.2f, 0.8f);
-                    }
-                    break;
-                }
                 case Fetch.Flying:
-                    if (_ball.linearVelocity.magnitude < 0.25f || Time.time - _fetchTimer > 2.5f)
+                    // Wait until it stops rolling, then go get it (a gentle drop right next to you doesn't count)
+                    if (_ball.linearVelocity.magnitude < 0.25f || Time.time - _fetchTimer > 3f)
                     {
+                        var head = mover != null ? mover.head : null;
+                        if (head != null && Vector3.Distance(Flat(head.position), Flat(_ball.position)) < 0.6f && Time.time - _fetchTimer < 1.5f)
+                        { _ball.isKinematic = true; _fetch = Fetch.Waiting; break; }
                         _fetch = Fetch.Going;
                         _fetchTimer = Time.time;
-                        brain?.visual?.FlashEmotion(Emotion.Excited, 3f);
                         brain?.sounds?.Play(Sfx.ChirpUp, 1.2f, 0.8f);
                     }
                     break;
                 case Fetch.Going:
-                    if (mover == null) { _fetch = Fetch.Holding; _ball.isKinematic = true; break; }
-                    mover.FlyTo(_ball.position + Vector3.up * 0.05f, 2f, _ball.position);
-                    if (Vector3.Distance(brain.transform.position, _ball.position) < 0.32f || Time.time - _fetchTimer > 8f)
+                    if (mover == null) { _fetch = Fetch.Waiting; _ball.isKinematic = true; break; }
+                    mover.FlyTo(_ball.position + Vector3.up * 0.12f, 2f, _ball.position);
+                    if (Vector3.Distance(brain.transform.position, _ball.position) < 0.35f || Time.time - _fetchTimer > 8f)
                     {
                         _fetch = Fetch.Carrying;
                         _fetchTimer = Time.time;
@@ -405,22 +411,234 @@ namespace Harley
                     }
                     break;
                 case Fetch.Carrying:
+                case Fetch.Offering:
                 {
                     if (mover == null || mover.head == null) break;
                     Transform hand = brain.visual != null ? brain.visual.handR : brain.transform;
-                    _ball.transform.position = hand.position + hand.forward * 0.03f;
+                    _ball.transform.position = hand.position + hand.forward * 0.04f;
                     Vector3 f = mover.head.forward; f.y = 0; f = f.sqrMagnitude > 0.01f ? f.normalized : Vector3.forward;
-                    Vector3 drop = mover.head.position + f * 0.45f + Vector3.down * 0.25f;
-                    mover.FlyTo(drop, 2f, mover.head.position);
-                    if (Vector3.Distance(brain.transform.position, drop) < 0.12f || Time.time - _fetchTimer > 8f)
+                    Vector3 spot = mover.head.position + f * 0.5f + Vector3.down * 0.3f;
+                    mover.FlyTo(spot, 2f, mover.head.position);
+                    if (_fetch == Fetch.Carrying && (Vector3.Distance(brain.transform.position, spot) < 0.15f || Time.time - _fetchTimer > 8f))
                     {
-                        _fetch = Fetch.Holding; // back in your hand: throw again
-                        brain?.visual?.Perform(CompanionAction.Spin);
-                        brain?.React("You just brought the ball back to the player in a game of fetch. Cheer, ask them to throw again.", Emotion.Happy);
+                        _fetch = Fetch.Offering; // holds it out: take it from her hand
+                        _fetchTimer = Time.time;
+                        if (_offerTarget == null) _offerTarget = new GameObject("Fetch Offer").transform;
+                        _offerTarget.position = brain.transform.position + (mover.head.position - brain.transform.position).normalized * 0.2f;
+                        if (brain.visual != null) brain.visual.reachTargetR = _offerTarget;
+                        brain.visual?.Perform(CompanionAction.Spin);
+                        brain?.React("You just brought the ball back in a game of fetch and you're holding it out. Cheer and tell them to take it and throw again.", Emotion.Happy);
+                    }
+                    if (_fetch == Fetch.Offering && Time.time - _fetchTimer > 25f)
+                    {
+                        // Nobody took it: leave it floating in front of the player
+                        if (brain.visual != null) brain.visual.reachTargetR = null;
+                        _ball.transform.position = spot + f * -0.1f + Vector3.up * 0.05f;
+                        _fetch = Fetch.Waiting;
                     }
                     break;
                 }
             }
+        }
+
+        Transform _offerTarget;
+        static Vector3 Flat(Vector3 v) { v.y = 0; return v; }
+
+        // ---------- fight ----------
+
+        // You get a sword in your right hand (left if the right isn't tracked), Harley gets one too.
+        enum Duel { Circle, WindUp, Strike, Recover }
+        Duel _duel;
+        GameObject _mySword, _herSword;
+        Transform _herHand;
+        float _duelT, _nextAttack, _lastClash, _lastHit;
+        int _you, _her;
+        Vector3 _myTipPrev, _myTipVel, _strikeAim, _strikeFrom;
+        bool _blocked;
+        const float MyBlade = 0.75f, HerBlade = 0.5f;
+
+        void StartFight()
+        {
+            _you = _her = 0;
+            _mySword = MakeSword("Your Sword", new Color(0.45f, 0.75f, 1f), MyBlade);
+            _herSword = MakeSword("Harley's Sword", new Color(1f, 0.45f, 0.8f), HerBlade);
+            _herHand = new GameObject("Harley Sword Hand").transform;
+            _herHand.position = brain != null ? brain.transform.position : Vector3.zero;
+            if (brain != null && brain.visual != null) brain.visual.reachTargetR = _herHand;
+            _duel = Duel.Circle;
+            _nextAttack = Time.time + 3f;
+            brain?.sounds?.Play(Sfx.Whee, 0.9f, 0.9f);
+            brain?.React("Sword fight! You both have glowing swords now. First to 5 hits wins. Challenge the player in a playful, dramatic way.", Emotion.Excited);
+        }
+
+        void EndFight()
+        {
+            if (_mySword) Destroy(_mySword);
+            if (_herSword) Destroy(_herSword);
+            if (_herHand) Destroy(_herHand.gameObject);
+            if (brain != null && brain.visual != null) brain.visual.reachTargetR = null;
+        }
+
+        GameObject MakeSword(string name, Color glow, float blade)
+        {
+            var root = new GameObject(name);
+            var unlit = Shader.Find("Universal Render Pipeline/Unlit");
+            Material M(Color c) { var m = new Material(unlit != null ? unlit : Shader.Find("Sprites/Default")); if (m.HasProperty("_BaseColor")) m.SetColor("_BaseColor", c); m.color = c; return m; }
+            Shape(PrimitiveType.Cylinder, root.transform, new Vector3(0, 0, 0.0f), new Vector3(0.03f, 0.06f, 0.03f), M(new Color(0.2f, 0.18f, 0.25f)))
+                .transform.localRotation = Quaternion.Euler(90, 0, 0);                                                      // handle
+            Shape(PrimitiveType.Cube, root.transform, new Vector3(0, 0, 0.065f), new Vector3(0.12f, 0.02f, 0.02f), M(new Color(0.75f, 0.7f, 0.85f))); // guard
+            Shape(PrimitiveType.Cube, root.transform, new Vector3(0, 0, 0.075f + blade * 0.5f), new Vector3(0.028f, 0.01f, blade), M(glow)); // blade
+            Shape(PrimitiveType.Cube, root.transform, new Vector3(0, 0, 0.075f + blade * 0.5f), new Vector3(0.05f, 0.004f, blade + 0.02f), M(glow * new Color(1, 1, 1, 0.35f) + new Color(0.2f, 0.2f, 0.2f, 0))); // glow edge
+            return root;
+        }
+
+        void UpdateFight()
+        {
+            var mover = brain != null ? brain.movement as CompanionMovement : null;
+            if (mover == null || mover.head == null || _mySword == null) return;
+            Transform head = mover.head;
+            float dt = Mathf.Max(Time.deltaTime, 0.001f);
+
+            // --- your sword follows your hand / controller ---
+            int id = HarleyPointer.Free[1].valid ? 1 : HarleyPointer.Free[0].valid ? 0 : -1;
+            if (id >= 0)
+            {
+                var ray = HarleyPointer.Free[id];
+                _mySword.SetActive(true);
+                _mySword.transform.SetPositionAndRotation(ray.origin + ray.direction * 0.02f, Quaternion.LookRotation(ray.direction, Vector3.up));
+            }
+            Vector3 myHilt = _mySword.transform.position + _mySword.transform.forward * 0.075f;
+            Vector3 myTip = myHilt + _mySword.transform.forward * MyBlade;
+            _myTipVel = Vector3.Lerp(_myTipVel, (myTip - _myTipPrev) / dt, 0.5f);
+            _myTipPrev = myTip;
+
+            // --- Harley moves around you ---
+            Vector3 f = head.forward; f.y = 0; f = f.sqrMagnitude > 0.01f ? f.normalized : Vector3.forward;
+            Vector3 r = Vector3.Cross(Vector3.up, f);
+            float dist = _duel == Duel.Strike ? 0.55f : _duel == Duel.Recover ? 1.15f : 0.85f;
+            Vector3 spot = head.position + f * dist + r * Mathf.Sin(Time.time * 0.8f) * 0.35f + Vector3.down * 0.2f;
+            mover.FlyTo(spot, 0.6f, head.position);
+
+            Vector3 me = brain.transform.position;
+            Vector3 toYou = (head.position + Vector3.down * 0.3f - me).normalized;
+            Vector3 side = Vector3.Cross(Vector3.up, toYou).normalized;
+            Vector3 chest = head.position + Vector3.down * 0.35f;
+
+            // --- Harley's sword arm ---
+            Vector3 handPos, bladeDir;
+            _duelT += dt;
+            switch (_duel)
+            {
+                default: // Circle: guard, point the sword at yours
+                    handPos = me + side * -0.12f + Vector3.up * 0.02f + toYou * 0.06f;
+                    bladeDir = ((myHilt + myTip) * 0.5f - handPos).normalized;
+                    bladeDir = Vector3.Slerp(Vector3.up, bladeDir, 0.6f);
+                    if (Time.time >= _nextAttack) { _duel = Duel.WindUp; _duelT = 0f; _strikeFrom = Random.value < 0.5f ? 1f * side : -1f * side; }
+                    break;
+                case Duel.WindUp: // raise it, telegraphing which side it comes from
+                    handPos = me + Vector3.up * 0.14f + _strikeFrom * 0.12f;
+                    bladeDir = (Vector3.up + _strikeFrom * 0.6f - toYou * 0.3f).normalized;
+                    if (_duelT > 0.55f) { _duel = Duel.Strike; _duelT = 0f; _blocked = false; _strikeAim = chest; brain?.sounds?.Play(Sfx.Whee, 1.5f, 0.6f); }
+                    break;
+                case Duel.Strike: // sweep down across you
+                {
+                    float k = Mathf.Clamp01(_duelT / 0.28f);
+                    handPos = me + toYou * 0.12f + Vector3.Lerp(Vector3.up * 0.12f + _strikeFrom * 0.12f, -_strikeFrom * 0.08f, k);
+                    Vector3 from = (Vector3.up + _strikeFrom * 0.6f).normalized;
+                    bladeDir = Vector3.Slerp(from, (_strikeAim - handPos).normalized, k);
+                    if (_duelT > 0.28f)
+                    {
+                        if (!_blocked) YouGotHit();
+                        _duel = Duel.Recover; _duelT = 0f;
+                    }
+                    break;
+                }
+                case Duel.Recover:
+                    handPos = me + side * -0.12f + toYou * 0.04f;
+                    bladeDir = Vector3.Slerp(Vector3.up, toYou, 0.4f);
+                    if (_duelT > 0.8f) { _duel = Duel.Circle; _duelT = 0f; _nextAttack = Time.time + Random.Range(1.4f, 3.2f); }
+                    break;
+            }
+            _herHand.position = handPos;
+            Transform hand = brain.visual != null && brain.visual.handR != null ? brain.visual.handR : _herHand;
+            _herSword.transform.SetPositionAndRotation(hand.position, Quaternion.LookRotation(bladeDir, Vector3.up));
+            Vector3 herHilt = _herSword.transform.position + _herSword.transform.forward * 0.075f;
+            Vector3 herTip = herHilt + _herSword.transform.forward * HerBlade;
+
+            // --- clash: blades touch ---
+            if (SegmentDistance(myHilt, myTip, herHilt, herTip, out Vector3 at) < 0.045f && Time.time - _lastClash > 0.25f)
+            {
+                _lastClash = Time.time;
+                Sparks(at);
+                brain?.sounds?.Play(Sfx.Thud, Random.Range(1.8f, 2.2f), 1f);
+                if (_duel == Duel.Strike) { _blocked = true; _duel = Duel.Recover; _duelT = 0f; brain?.visual?.FlashEmotion(Emotion.Surprised, 0.8f); }
+            }
+
+            // --- your hit: a fast swing through Harley ---
+            if (Time.time - _lastHit > 0.7f && _myTipVel.magnitude > 1.1f &&
+                PointSegmentDistance(me, myHilt + _mySword.transform.forward * MyBlade * 0.3f, myTip) < 0.13f)
+            {
+                _lastHit = Time.time;
+                _you++;
+                Sparks(me);
+                brain?.visual?.Squish(9f);
+                brain?.visual?.FlashEmotion(Emotion.Surprised, 1f);
+                brain?.sounds?.Play(Sfx.Boing, 1.1f, 1f);
+                _duel = Duel.Recover; _duelT = 0f;
+                Score();
+            }
+        }
+
+        void YouGotHit()
+        {
+            _her++;
+            brain?.sounds?.Play(Sfx.ChirpDown, 1.3f, 1f);
+            brain?.visual?.FlashEmotion(Emotion.Excited, 1.2f);
+            Score();
+        }
+
+        void Score()
+        {
+            brain?.voice?.ShowStatus($"You {_you}  -  {_her} Harley", 2.5f);
+            if (_you >= 5 || _her >= 5)
+            {
+                bool youWon = _you >= 5;
+                brain?.visual?.Perform(youWon ? CompanionAction.Wave : CompanionAction.Celebrate);
+                brain?.React(youWon
+                    ? $"The player just WON the sword fight {_you} to {_her}. Be a dramatic, funny good loser and ask for a rematch."
+                    : $"You just WON the sword fight {_her} to {_you}. Celebrate playfully and offer a rematch.", youWon ? Emotion.Surprised : Emotion.Excited);
+                _you = _her = 0;
+                _nextAttack = Time.time + 5f;
+            }
+        }
+
+        void Sparks(Vector3 at)
+        {
+            var mat = Glow(new Color(1f, 0.85f, 0.5f), 2f);
+            Debris(at, 0.015f, 7, mat, 0.45f);
+        }
+
+        static float PointSegmentDistance(Vector3 p, Vector3 a, Vector3 b)
+        {
+            Vector3 ab = b - a;
+            float t = Mathf.Clamp01(Vector3.Dot(p - a, ab) / Mathf.Max(1e-6f, ab.sqrMagnitude));
+            return Vector3.Distance(p, a + ab * t);
+        }
+
+        /// <summary>Closest distance between two segments, and the point between them.</summary>
+        static float SegmentDistance(Vector3 p1, Vector3 q1, Vector3 p2, Vector3 q2, out Vector3 mid)
+        {
+            Vector3 d1 = q1 - p1, d2 = q2 - p2, r = p1 - p2;
+            float a = Vector3.Dot(d1, d1), e = Vector3.Dot(d2, d2), f = Vector3.Dot(d2, r);
+            float s, t;
+            float c = Vector3.Dot(d1, r), b = Vector3.Dot(d1, d2), denom = a * e - b * b;
+            s = denom > 1e-6f ? Mathf.Clamp01((b * f - c * e) / denom) : 0f;
+            t = (b * s + f) / Mathf.Max(1e-6f, e);
+            if (t < 0f) { t = 0f; s = Mathf.Clamp01(-c / Mathf.Max(1e-6f, a)); }
+            else if (t > 1f) { t = 1f; s = Mathf.Clamp01((b - c) / Mathf.Max(1e-6f, a)); }
+            Vector3 c1 = p1 + d1 * s, c2 = p2 + d2 * t;
+            mid = (c1 + c2) * 0.5f;
+            return Vector3.Distance(c1, c2);
         }
 
         // ---------- helpers ----------
