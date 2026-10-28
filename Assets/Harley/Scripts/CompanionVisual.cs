@@ -78,6 +78,7 @@ namespace Harley
             if (handL) _handLBase = handL.localPosition;
             if (handR) _handRBase = handR.localPosition;
             _glowNow = purple;
+            EnsureEmission(glowRenderers);
             _nextBlink = Time.time + Random.Range(1.5f, 4f);
             BuildHalo();
         }
@@ -415,6 +416,22 @@ namespace Harley
                 _mpb.SetColor(ColorId, albedo);
                 _mpb.SetColor(EmissionId, c * intensity * 2.4f); // HDR: glows visibly
                 r.SetPropertyBlock(_mpb);
+            }
+        }
+
+        /// <summary>Makes sure glowing parts render their emission (URP can drop the keyword on saved materials).</summary>
+        public static void EnsureEmission(Renderer[] renderers)
+        {
+            if (renderers == null) return;
+            foreach (var r in renderers)
+            {
+                if (!r) continue;
+                foreach (var m in r.sharedMaterials)
+                    if (m != null && m.HasProperty("_EmissionColor") && !m.IsKeywordEnabled("_EMISSION"))
+                    {
+                        m.EnableKeyword("_EMISSION");
+                        m.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+                    }
             }
         }
 

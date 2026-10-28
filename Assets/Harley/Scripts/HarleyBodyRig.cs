@@ -35,6 +35,8 @@ namespace Harley
             _mpb = new MaterialPropertyBlock();
             if (!visual) visual = GetComponentInChildren<CompanionVisual>();
             if (!voice) voice = GetComponentInParent<CompanionVoice>();
+            CompanionVisual.EnsureEmission(new[] { core });
+            CompanionVisual.EnsureEmission(hoverGlow);
             Prepare(left);
             Prepare(right);
         }
