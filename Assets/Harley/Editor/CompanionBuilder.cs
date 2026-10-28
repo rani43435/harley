@@ -130,6 +130,12 @@ namespace Harley.EditorTools
                 : new Vector3(0f, 1.3f, 0.9f);
             if (pos.y < 0.6f) pos.y = 1.2f; // the rig's camera sits on the floor in the Editor; on the headset it's at eye height
 
+            // Leftover empty face parts at the scene root from an older build
+            foreach (var go in UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects())
+                if ((go.name == "Mouth" || go.name == "CheekL" || go.name == "CheekR" || go.name == "EyeL" || go.name == "EyeR")
+                    && go.transform.childCount == 0 && go.GetComponents<Component>().Length == 1)
+                    Object.DestroyImmediate(go);
+
             Parts p = BuildBody(pos, true);
             GameObject root = p.root;
 
@@ -403,19 +409,24 @@ namespace Harley.EditorTools
             }
             foreach (var c in inst.GetComponentsInChildren<Collider>(true)) Object.DestroyImmediate(c);
 
-            // Face parts animate with the squash root
-            foreach (string n in new[] { "Head", "EyeL", "EyeR", "Mouth", "CheekL", "CheekR" })
+            // Face parts animate with the squash root (find them all first: some are children of the head)
+            Transform mo = Find("Mouth"), cL = Find("CheekL"), cR = Find("CheekR");
+            var face = new[] { head, eL, eR, mo, cL, cR };
+            foreach (var f in face)
             {
-                var t = Find(n);
-                if (t != null) t.SetParent(squash, true);
+                if (f == null) continue;
+                bool underFacePart = false;
+                foreach (var other in face) if (other != null && other != f && f.IsChildOf(other)) underFacePart = true;
+                if (!underFacePart) f.SetParent(squash, true);
             }
+            GameObject Empty(string n, Transform parent) { var g = new GameObject(n); g.transform.SetParent(parent, false); return g; }
             p.body = head != null ? head.gameObject : inst;
             p.sounds = p.body.AddComponent<CompanionSounds>();
-            eyeL = eL != null ? eL.gameObject : new GameObject("EyeL");
-            eyeR = eR != null ? eR.gameObject : new GameObject("EyeR");
-            mouth = Find("Mouth") != null ? Find("Mouth").gameObject : new GameObject("Mouth");
-            cheekL = Find("CheekL") != null ? Find("CheekL").gameObject : new GameObject("CheekL");
-            cheekR = Find("CheekR") != null ? Find("CheekR").gameObject : new GameObject("CheekR");
+            eyeL = eL != null ? eL.gameObject : Empty("EyeL", squash);
+            eyeR = eR != null ? eR.gameObject : Empty("EyeR", squash);
+            mouth = mo != null ? mo.gameObject : Empty("Mouth", squash);
+            cheekL = cL != null ? cL.gameObject : Empty("CheekL", squash);
+            cheekR = cR != null ? cR.gameObject : Empty("CheekR", squash);
 
             // Hand targets at the far end of each arm
             GameObject Target(string name, Transform arm)
