@@ -40,6 +40,8 @@ namespace Harley
         public float gestureScale = 1f;
         [Tooltip("Where the left hand goes while listening (cupped near the head), relative to its rest spot.")]
         public Vector3 listenHandOffset = new Vector3(-0.005f, 0.06f, -0.01f);
+        [Tooltip("When set, the right hand reaches for this (handing something over).")]
+        public Transform reachTargetR;
 
         public Emotion CurrentEmotion => Time.time < _overrideUntil ? _overrideEmotion : _baseEmotion;
 
@@ -320,6 +322,9 @@ namespace Harley
             {
                 l = Vector3.Lerp(l, _handLBase + listenHandOffset, 0.6f);
             }
+
+            if (reachTargetR != null && handR.parent != null)
+                r = handR.parent.InverseTransformPoint(reachTargetR.position);
 
             float f = 1f - Mathf.Exp(-14f * dt);
             handL.localPosition = Vector3.Lerp(handL.localPosition, l, f);

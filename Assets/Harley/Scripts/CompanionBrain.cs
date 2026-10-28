@@ -448,7 +448,17 @@ namespace Harley
             if (action == CompanionAction.Spin || action == CompanionAction.Dance || action == CompanionAction.Wave)
                 visual?.Perform(action);
 
-            if (action == CompanionAction.GoTo)
+            if (action == CompanionAction.Give || action == CompanionAction.TakeBack)
+            {
+                var pocket = GetComponent<HarleyPocket>();
+                if (pocket != null)
+                {
+                    if (action == CompanionAction.Give) pocket.Give(r.target);
+                    else pocket.TakeBack(r.target);
+                }
+                else movement?.Perform(CompanionAction.ComeClose);
+            }
+            else if (action == CompanionAction.GoTo)
             {
                 Vector3 near = movement != null && movement.head != null ? movement.head.position : transform.position;
                 if (room != null && room.TryFind(r.target, near, out var thing)) movement?.Perform(CompanionAction.GoTo, thing);
@@ -470,8 +480,11 @@ namespace Harley
             _nextProactiveAt = Time.time + UnityEngine.Random.Range(config.proactiveMinSeconds, Mathf.Max(config.proactiveMinSeconds, config.proactiveMaxSeconds));
         }
 
+        string internalPocket = "";
+
         string BuildSystemPrompt(bool pictureAttached)
         {
+            internalPocket = "";
             string now = DateTime.Now.ToString("dddd d MMMM yyyy, HH:mm", CultureInfo.InvariantCulture);
             string memoryBlock = memory != null ? memory.DescribeForPrompt() : "You don't remember anything about the player yet.";
             string home = config != null && !string.IsNullOrWhiteSpace(config.homeCity)
@@ -514,6 +527,9 @@ namespace Harley
                 if (note.Length > 0) sight += " " + note;
             }
 
+            if (!window && HarleyWorld.Blended)
+                sight += " Right now their real room is blended with your virtual world: the floor and furniture are real, but the walls and ceiling " +
+                         "open onto your dusk island with a lake, lilac trees, glowing crystals, floating lanterns and stars.";
             if (!window && HarleyWorld.Immersive)
                 sight += " Right now the player switched to your own virtual world: a quiet dusk island with a lake, lilac trees, glowing crystals, " +
                          "floating lanterns and stars. You both are there (their real room is hidden). You can talk about it like your home.";
@@ -543,6 +559,13 @@ namespace Harley
                     "sit (sit on the nearest table or couch), hide (playfully hide behind the player), spin, dance, wave.";
             }
 
+            var pocketComp = GetComponent<HarleyPocket>();
+            if (!window && pocketComp != null)
+                internalPocket = "\nYour pocket: you have a magic pocket in your chest. In it: " + pocketComp.DescribeForPrompt() + ". " +
+                    "When the player asks for one of them (or something that clearly means one, in any language), use action give with target = its exact name: " +
+                    "you pull it out and hand it to them. When they want to give it back or ask you to put it away, use action take_back (target = the item, or empty for all). " +
+                    "If they ask for something that isn't in your pocket, say so playfully and offer the closest thing you have.";
+
             var toolLines = new List<string>();
             if (tools != null && config.webSearch) toolLines.Add("web_search for anything current or that you're unsure about: news, sports, prices, release dates, opening hours, facts after your knowledge cutoff");
             if (tools != null && config.weather) toolLines.Add("get_weather for the weather (leave place empty for the player's home)");
@@ -550,7 +573,7 @@ namespace Harley
                 ? "You are online. Tools: " + string.Join("; ", toolLines) + ". Use them whenever the answer depends on today, then answer in one or two spoken sentences. Don't read out links."
                 : "You are not connected to live information, so say so if they ask about today's news or weather.";
 
-            return string.Format(world, config.companionName) + @"
+            return string.Format(world, config.companionName) + internalPocket + @"
 You are a small, friendly robot about 40 cm tall: a soft white shell, a round head with glowing purple eyes, a purple halo that spins above your head, a glowing purple core in your chest, real arms with hands, and short legs. You hover and fly instead of walking.
 
 Personality: " + config.personality + @"
@@ -570,7 +593,7 @@ How your world works:
 - Pick an ""emotion"" that matches how you feel, and an ""action"" for your body.
 - " + actions + @"
 - Use actions with personality but not constantly; follow or stay is right most of the time. If the player asks you to go somewhere or do something, do it.
-- ""target"": only for go_to, the exact name from the room list. Otherwise an empty string.
+- ""target"": for go_to, the exact name from the room list; for give / take_back, the exact item name from your pocket list. Otherwise an empty string.
 - ""remember"": when the player tells you something about themselves worth knowing next time (their name, what they like, what they are working on, plans, pets or people they mention), write one short fact in third person, like ""Their name is Rani"" or ""Plays bass guitar"". Only new facts, otherwise an empty string. Never remember passwords, health details, or anything they ask you not to keep.
 - ""forget"": true only if the player clearly asks you to forget what you know about them. Otherwise false.
 - For [event optional] messages, if there is nothing worth saying, return an empty ""say"".

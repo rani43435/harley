@@ -12,64 +12,149 @@ namespace Harley
     /// </summary>
     public class HarleyWorld : MonoBehaviour
     {
+        /// <summary>Room = mixed reality. Blend = your real room (floor, furniture) with Harley's world all around,
+        /// through the walls and ceiling, like a home with open views. World = fully immersive.</summary>
+        public enum Mode { Room = 0, Blend = 1, World = 2 }
+
         public static HarleyWorld Instance { get; private set; }
-        public static bool Immersive => Instance != null && Instance._immersive;
+        public static bool Immersive => Instance != null && Instance.Current == Mode.World;
+        public static bool Blended => Instance != null && Instance.Current == Mode.Blend;
+        public Mode Current { get; private set; } = Mode.Room;
 
         [Tooltip("Lit material to copy for the world (the builder uses Harley's white).")]
         public Material litTemplate;
         [Tooltip("Glowing material to copy (the builder uses Harley's purple).")]
         public Material glowTemplate;
         public Transform head;
+        public CompanionRoom room;
 
         const string Pref = "harley.world";
-        bool _immersive;
-        GameObject _world;
+        GameObject _world, _windows;
         Camera _cam;
         CameraClearFlags _clearFlags;
         Color _clearColor;
         readonly List<MonoBehaviour> _passthrough = new List<MonoBehaviour>();
         float _floorY;
+        float _nextWindowsRefresh;
 
         void Awake() { Instance = this; }
 
         void Start()
         {
             if (head == null && Camera.main != null) head = Camera.main.transform;
-            if (PlayerPrefs.GetInt(Pref, 0) == 1) Invoke(nameof(GoWorld), 0.5f);
+            if (room == null) room = FindAnyObjectByType<CompanionRoom>();
+            int saved = PlayerPrefs.GetInt(Pref, 0);
+            if (saved != 0) StartCoroutine(Later((Mode)saved));
         }
 
-        void GoWorld() => SetImmersive(true);
+        System.Collections.IEnumerator Later(Mode m) { yield return new WaitForSeconds(1.5f); SetMode(m); }
 
-        public void Toggle() => SetImmersive(!_immersive);
+        /// <summary>Room -> Room + world -> World -> Room.</summary>
+        public void Toggle() => SetMode((Mode)(((int)Current + 1) % 3));
 
-        public void SetImmersive(bool on)
+        public void SetImmersive(bool on) => SetMode(on ? Mode.World : Mode.Room);
+
+        public static string Label(Mode m) => m == Mode.Room ? "My room" : m == Mode.Blend ? "Room + world" : "Harley's world";
+
+        public void SetMode(Mode m)
         {
-            if (on == _immersive) return;
-            _immersive = on;
-            PlayerPrefs.SetInt(Pref, on ? 1 : 0);
+            if (m == Current) return;
+            Current = m;
+            PlayerPrefs.SetInt(Pref, (int)m);
             PlayerPrefs.Save();
 
             if (_cam == null) { _cam = Camera.main; if (_cam) { _clearFlags = _cam.clearFlags; _clearColor = _cam.backgroundColor; } }
 
-            // Passthrough off in the world (saves battery too), back on in the room.
+            // Passthrough: on in the room and in the blend, off in the full world (saves battery too)
             if (_passthrough.Count == 0)
-                foreach (var mb in FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                foreach (var mb in FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Include))
                     if (mb != null && mb.GetType().Name == "OVRPassthroughLayer") _passthrough.Add(mb);
-            foreach (var pt in _passthrough) if (pt) pt.enabled = !on;
+            foreach (var pt in _passthrough) if (pt) pt.enabled = m != Mode.World;
 
-            if (on)
+            if (m != Mode.Room && _world == null) Build();
+            if (_world) _world.SetActive(m != Mode.Room);
+            if (_cam)
             {
-                if (_world == null) Build();
-                _world.SetActive(true);
-                if (_cam) { _cam.clearFlags = CameraClearFlags.SolidColor; _cam.backgroundColor = new Color(0.08f, 0.06f, 0.2f, 1f); }
+                if (m == Mode.World) { _cam.clearFlags = CameraClearFlags.SolidColor; _cam.backgroundColor = new Color(0.08f, 0.06f, 0.2f, 1f); }
+                else { _cam.clearFlags = _clearFlags; _cam.backgroundColor = _clearColor; }
+            }
+            if (m != Mode.Room)
+            {
                 RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
                 RenderSettings.ambientLight = new Color(0.42f, 0.36f, 0.55f);
             }
+            BuildWindows();
+        }
+
+        void Update()
+        {
+            // The room scan can arrive late or change: keep the real floor and furniture see-through in the blend
+            if (Current == Mode.Blend && Time.unscaledTime >= _nextWindowsRefresh)
+            {
+                _nextWindowsRefresh = Time.unscaledTime + 5f;
+                if (_windows == null || _windows.transform.childCount == 0) BuildWindows();
+            }
+        }
+
+        /// <summary>
+        /// Blend: invisible "passthrough windows" over the real floor and furniture. They hide the world there,
+        /// so you keep seeing your real floor, table and couch, while walls and ceiling open onto Harley's world.
+        /// </summary>
+        void BuildWindows()
+        {
+            if (_windows) Destroy(_windows);
+            _windows = null;
+            if (Current != Mode.Blend) return;
+            var shader = Shader.Find("Harley/Passthrough Window");
+            if (shader == null) return;
+            var mat = new Material(shader);
+            _windows = new GameObject("Room Windows");
+
+            if (room != null && room.FloorAnchor != null)
+            {
+                Rect r = room.FloorRect;
+                var q = Quad(_windows.transform, mat);
+                q.transform.SetPositionAndRotation(room.FloorAnchor.TransformPoint(new Vector3(r.center.x, r.center.y, 0f)), room.FloorAnchor.rotation);
+                q.transform.localScale = new Vector3(r.width, r.height, 1f);
+            }
             else
             {
-                if (_world) _world.SetActive(false);
-                if (_cam) { _cam.clearFlags = _clearFlags; _cam.backgroundColor = _clearColor; }
+                // No room scan: keep a 3 m circle of real floor around you
+                var disc = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                Destroy(disc.GetComponent<Collider>());
+                disc.transform.SetParent(_windows.transform, false);
+                Vector3 c = head != null ? head.position : Vector3.zero;
+                disc.transform.position = new Vector3(c.x, _floorY + 0.005f, c.z);
+                disc.transform.localScale = new Vector3(6f, 0.001f, 6f);
+                disc.GetComponent<Renderer>().sharedMaterial = mat;
             }
+
+            if (room != null)
+                foreach (var t in room.Things)
+                {
+                    if (!t.isVolume) continue;
+                    var box = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    Destroy(box.GetComponent<Collider>());
+                    box.name = "Window " + t.name;
+                    box.transform.SetParent(_windows.transform, false);
+                    box.transform.position = t.center;
+                    box.transform.rotation = t.anchor != null ? Quaternion.Euler(0f, t.anchor.eulerAngles.y, 0f) : Quaternion.identity;
+                    box.transform.localScale = t.size + Vector3.one * 0.02f;
+                    var r = box.GetComponent<Renderer>();
+                    r.sharedMaterial = mat;
+                    r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                }
+        }
+
+        static GameObject Quad(Transform parent, Material mat)
+        {
+            var q = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            Destroy(q.GetComponent<Collider>());
+            q.transform.SetParent(parent, false);
+            var r = q.GetComponent<Renderer>();
+            r.sharedMaterial = mat;
+            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            return q;
         }
 
         // ---------- building the world ----------

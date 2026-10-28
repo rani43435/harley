@@ -59,7 +59,7 @@ namespace Harley
             // Apps / Room-World
             y += 64f;
             PlaceTL(AddButton(c, "Apps", () => { LauncherPanel.Show(head); gameObject.SetActive(false); }, null, 22).rect, L, y, 213, 48);
-            _world = AddButton(c, HarleyWorld.Immersive ? "Back to my room" : "Harley's world", ToggleWorld, null, 20);
+            _world = AddButton(c, "View: My room", ToggleWorld, null, 19);
             PlaceTL(_world.rect, L + 223, y, 213, 48);
 
             // Play tools
@@ -120,8 +120,7 @@ namespace Harley
 
         void ToggleWorld()
         {
-            HarleyWorld.Instance?.Toggle();
-            gameObject.SetActive(false);
+            HarleyWorld.Instance?.Toggle(); // My room -> Room + world -> Harley's world -> My room
         }
 
         // ---------- actions ----------
@@ -215,7 +214,7 @@ namespace Harley
                 _option.label.text = tools != null && tools.Current == HarleyTools.Tool.Add ? "Thing: " + tools.AddItemName : "Colour";
             if (_option != null && _option.image != null && tools != null && tools.Current != HarleyTools.Tool.Add) _option.baseColor = tools.InkColor * new Color(1, 1, 1, 0.55f);
             else if (_option != null) _option.baseColor = button;
-            if (_world != null && _world.label != null) _world.label.text = HarleyWorld.Immersive ? "Back to my room" : "Harley's world";
+            if (_world != null && _world.label != null && HarleyWorld.Instance != null) _world.label.text = "View: " + HarleyWorld.Label(HarleyWorld.Instance.Current);
         }
 
         /// <summary>Left controller menu button toggles the menu (runs on the always-active watcher).</summary>

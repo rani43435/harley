@@ -136,7 +136,7 @@ namespace Harley
                 bool was = tip.pinching;
                 tip.pinching = was ? pinch < pinchOff : pinch < pinchOn;
                 Vector3 pinchPoint = (tip.thumb.position + p) * 0.5f;
-                if (!was && tip.pinching && _holder == null && Vector3.Distance(pinchPoint, c) < bodyRadius + 0.07f)
+                if (!was && tip.pinching && _holder == null && Vector3.Distance(pinchPoint, c) < bodyRadius + 0.07f && !HarleyGrab.NearAny(pinchPoint))
                 {
                     Tip captured = tip;
                     StartHolding(() => (captured.thumb.position + captured.t.position) * 0.5f, () => captured.pinching);
@@ -205,7 +205,7 @@ namespace Harley
             bool down = false;
             if (dev.isValid) dev.TryGetFeatureValue(UnityEngine.XR.CommonUsages.gripButton, out down);
             if (down && !was && anchor != null && _holder == null &&
-                Vector3.Distance(anchor.position, body.position) < bodyRadius + 0.12f)
+                Vector3.Distance(anchor.position, body.position) < bodyRadius + 0.12f && !HarleyGrab.NearAny(anchor.position + anchor.forward * 0.04f))
             {
                 StartHolding(() => anchor.position, () =>
                 {

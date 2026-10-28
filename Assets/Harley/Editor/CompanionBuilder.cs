@@ -177,6 +177,12 @@ namespace Harley.EditorTools
             var world = ui.AddComponent<HarleyWorld>();
             world.litTemplate = white;
             world.glowTemplate = purpleMat;
+            ui.AddComponent<HarleyGrab>();
+            var pocket = root.AddComponent<HarleyPocket>();
+            pocket.brain = brain;
+            pocket.litTemplate = white;
+            pocket.glowTemplate = purpleMat;
+            world.room = room;
             var play = ui.AddComponent<HarleyTools>();
             play.brain = brain;
             play.litTemplate = white;

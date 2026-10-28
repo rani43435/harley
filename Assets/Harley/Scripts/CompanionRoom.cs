@@ -38,6 +38,12 @@ namespace Harley
         public bool HasRoom => _things.Count > 0;
         public float? FloorY { get; private set; }
         public IReadOnlyList<Thing> Things => _things;
+        /// <summary>The room's floor (MRUK): its anchor and its rectangle in the anchor's plane. Null until scanned.</summary>
+        public Transform FloorAnchor { get; private set; }
+        public Rect FloorRect { get; private set; }
+        /// <summary>The room's ceiling, same idea.</summary>
+        public Transform CeilingAnchor { get; private set; }
+        public Rect CeilingRect { get; private set; }
 
         readonly List<Thing> _things = new List<Thing>();
 
@@ -116,7 +122,14 @@ namespace Harley
                 string labels = (_label.GetValue(a) ?? "").ToString(); // flags enum -> "TABLE" or "TABLE, OTHER"
                 string first = labels.Split(',')[0].Trim();
 
-                if (first == "FLOOR") { floor = comp.transform.position.y; continue; }
+                if (first == "FLOOR" || first == "CEILING")
+                {
+                    object fr = _plane != null ? _plane.GetValue(a) : null;
+                    Rect rect = fr is Rect r0 ? r0 : new Rect(-2f, -2f, 4f, 4f);
+                    if (first == "FLOOR") { floor = comp.transform.position.y; FloorAnchor = comp.transform; FloorRect = rect; }
+                    else { CeilingAnchor = comp.transform; CeilingRect = rect; }
+                    continue;
+                }
                 if (!Kinds.TryGetValue(first, out string kind)) continue; // walls, ceiling, global mesh...
 
                 var thing = new Thing { kind = kind, anchor = comp.transform };

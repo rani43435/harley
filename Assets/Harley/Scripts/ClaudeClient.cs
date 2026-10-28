@@ -38,7 +38,7 @@ namespace Harley
   ""properties"": {
     ""say"":     { ""type"": ""string"" },
     ""emotion"": { ""type"": ""string"", ""enum"": [""neutral"",""happy"",""excited"",""curious"",""surprised"",""sad"",""sleepy"",""love""] },
-    ""action"":  { ""type"": ""string"", ""enum"": [""stay"",""follow"",""come_close"",""wander"",""look_at_thing"",""sit"",""hide"",""spin"",""dance"",""wave"",""go_to""] },
+    ""action"":  { ""type"": ""string"", ""enum"": [""stay"",""follow"",""come_close"",""wander"",""look_at_thing"",""sit"",""hide"",""spin"",""dance"",""wave"",""go_to"",""give"",""take_back""] },
     ""target"":  { ""type"": ""string"" },
     ""remember"": { ""type"": ""string"" },
     ""forget"":  { ""type"": ""boolean"" }
