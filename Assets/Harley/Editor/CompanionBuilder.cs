@@ -177,10 +177,10 @@ namespace Harley.EditorTools
             var world = ui.AddComponent<HarleyWorld>();
             world.litTemplate = white;
             world.glowTemplate = purpleMat;
-            var tools = ui.AddComponent<HarleyTools>();
-            tools.brain = brain;
-            tools.litTemplate = white;
-            tools.glowTemplate = purpleMat;
+            var play = ui.AddComponent<HarleyTools>();
+            play.brain = brain;
+            play.litTemplate = white;
+            play.glowTemplate = purpleMat;
             foreach (var c in ui.GetComponentsInChildren<Component>(true)) EditorUtility.SetDirty(c);
 
             EnsureLight();
