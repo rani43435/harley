@@ -43,6 +43,12 @@ namespace Harley
         public string witVoice = "";
         [Range(0f, 1f)] public float voiceVolume = 1f;
 
+        [Header("Voice (headset's own, free and offline)")]
+        [Tooltip("Without Wit, Harley talks with the headset's built-in text-to-speech (if it has one). Off = babble voice.")]
+        public bool deviceVoice = true;
+        [Range(0.5f, 2f)] public float deviceVoicePitch = 1.35f;
+        [Range(0.5f, 2f)] public float deviceVoiceRate = 1.05f;
+
         [Header("Character")]
         public string companionName = "Harley";
         [TextArea(2, 6)]

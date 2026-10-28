@@ -25,10 +25,12 @@ namespace Harley
             public string firstMet = "";
             public string lastVisit = "";
             public int visits;
+            public List<string> recentChat = new List<string>();
         }
 
         Data _data = new Data();
         string _previousVisit = "";
+        List<string> _lastSessionChat = new List<string>();
         string Path => System.IO.Path.Combine(Application.persistentDataPath, fileName);
 
         public IReadOnlyList<string> Facts => _data.facts;
@@ -38,6 +40,7 @@ namespace Harley
         {
             Load();
             _previousVisit = _data.lastVisit;
+            _lastSessionChat = new List<string>(_data.recentChat);
             string now = DateTime.Now.ToString("o", CultureInfo.InvariantCulture);
             if (string.IsNullOrEmpty(_data.firstMet)) _data.firstMet = now;
             _data.visits++;
@@ -61,10 +64,29 @@ namespace Harley
             return true;
         }
 
+        /// <summary>Keeps the last few lines of conversation, so next time Harley knows what you talked about.</summary>
+        public void NoteExchange(string player, string harley)
+        {
+            if (config != null && !config.longTermMemory) return;
+            if (string.IsNullOrWhiteSpace(player) || player.StartsWith("[", StringComparison.Ordinal)) return;
+            _data.recentChat.Add("Player: " + Clip(player));
+            if (!string.IsNullOrWhiteSpace(harley)) _data.recentChat.Add("You: " + Clip(harley));
+            while (_data.recentChat.Count > 16) _data.recentChat.RemoveAt(0);
+            Save();
+        }
+
+        static string Clip(string s)
+        {
+            s = s.Replace('\n', ' ').Trim();
+            return s.Length > 140 ? s.Substring(0, 140) + "..." : s;
+        }
+
         [ContextMenu("Forget Everything")]
         public void ForgetAll()
         {
             _data.facts.Clear();
+            _data.recentChat.Clear();
+            _lastSessionChat.Clear();
             Save();
         }
 
@@ -89,6 +111,11 @@ namespace Harley
             {
                 sb.Append("\nWhat you remember about the player from earlier:");
                 foreach (var f in _data.facts) sb.Append("\n- ").Append(f);
+            }
+            if (_lastSessionChat.Count > 0)
+            {
+                sb.Append("\nThe end of your conversation last time (you can pick it up naturally if it fits, don't repeat it):");
+                foreach (var line in _lastSessionChat) sb.Append("\n  ").Append(line);
             }
             return sb.ToString();
         }
@@ -117,6 +144,7 @@ namespace Harley
                 _data = new Data();
             }
             if (_data.facts == null) _data.facts = new List<string>();
+            if (_data.recentChat == null) _data.recentChat = new List<string>();
         }
 
         void Save()

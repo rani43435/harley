@@ -77,15 +77,16 @@ namespace Harley
             }
             y += 48f;
             _option = AddButton(c, "Colour", NextOption, null, 16);
-            PlaceTL(_option.rect, L, y, 213, 36);
-            PlaceTL(AddButton(c, "Clear all", () => HarleyTools.Instance?.ClearAll(), null, 16).rect, L + 223, y, 213, 36);
+            PlaceTL(_option.rect, L, y, 140, 36);
+            PlaceTL(AddButton(c, "Clear all", () => HarleyTools.Instance?.ClearAll(), null, 16).rect, L + 148, y, 140, 36);
+            PlaceTL(AddButton(c, "Hide & seek", () => { gameObject.SetActive(false); brain?.PlayHideAndSeek(); }, null, 16).rect, L + 296, y, 140, 36);
 
             // Settings
             y += 50f;
             var cfg = brain != null ? brain.config : null;
             PlaceTL(AddToggle(c, "Follow me", Pref(PrefFollow, true), v => { Save(PrefFollow, v); Follow(v); }).rect, L, y, 140, 42);
             PlaceTL(AddToggle(c, "Comments", Pref(PrefComments, cfg == null || cfg.proactiveComments), v => { Save(PrefComments, v); if (cfg) cfg.proactiveComments = v; }).rect, L + 148, y, 140, 42);
-            PlaceTL(AddToggle(c, "Voice", Pref(PrefVoice, cfg == null || cfg.witVoiceOutput), v => { Save(PrefVoice, v); if (cfg) cfg.witVoiceOutput = v; }).rect, L + 296, y, 140, 42);
+            PlaceTL(AddToggle(c, "Voice", Pref(PrefVoice, cfg == null || cfg.witVoiceOutput), v => { Save(PrefVoice, v); if (cfg) { cfg.witVoiceOutput = v; cfg.deviceVoice = v; } }).rect, L + 296, y, 140, 42);
 
             y += 50f;
             PlaceTL(AddButton(c, "Come here", () => brain?.movement?.Perform(CompanionAction.ComeClose), null, 18).rect, L, y, 140, 42);
@@ -171,6 +172,7 @@ namespace Harley
             {
                 cfg.proactiveComments = Pref(PrefComments, cfg.proactiveComments);
                 cfg.witVoiceOutput = Pref(PrefVoice, cfg.witVoiceOutput);
+                cfg.deviceVoice = cfg.witVoiceOutput;
             }
             if (!Pref(PrefFollow, true)) Follow(false);
         }

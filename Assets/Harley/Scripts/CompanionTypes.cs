@@ -6,7 +6,7 @@ namespace Harley
 {
     public enum Emotion { Neutral, Happy, Excited, Curious, Surprised, Sad, Sleepy, Love }
 
-    public enum CompanionAction { Stay, Follow, ComeClose, Wander, LookAtThing, Sit, Hide, Spin, Dance, Wave, GoTo, Give, TakeBack }
+    public enum CompanionAction { Stay, Follow, ComeClose, Wander, LookAtThing, Sit, Hide, Spin, Dance, Wave, GoTo, Give, TakeBack, HideAndSeek, Sleep, Celebrate }
 
     /// <summary>What Claude sends back every time (matches the JSON schema in ClaudeClient).</summary>
     [Serializable]
@@ -53,6 +53,9 @@ namespace Harley
                 case "go_to": return CompanionAction.GoTo;
                 case "give": return CompanionAction.Give;
                 case "take_back": return CompanionAction.TakeBack;
+                case "hide_and_seek": return CompanionAction.HideAndSeek;
+                case "sleep": return CompanionAction.Sleep;
+                case "celebrate": return CompanionAction.Celebrate;
                 default: return CompanionAction.Stay;
             }
         }

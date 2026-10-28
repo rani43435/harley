@@ -54,7 +54,8 @@ namespace Harley
         Vector3 _eyeScale, _mouthScale;
         float _nextBlink, _blinkT = -1f;
         float _squash, _squashVel;
-        float _spinT = -1f, _danceT = -1f, _waveT = -1f;
+        float _spinT = -1f, _danceT = -1f, _waveT = -1f, _celebrateT = -1f;
+        float _nextZ;
         float _haloSpin;
         Vector3 _eyeShiftL, _eyeShiftR;
         float _sitBlend;
@@ -89,6 +90,8 @@ namespace Harley
         public void FlashEmotion(Emotion e, float seconds) { _overrideEmotion = e; _overrideUntil = Time.time + seconds; }
 
         public void SetListening(bool on) { _listening = on; }
+        /// <summary>Fast asleep: eyes shut, slow breathing, little z's.</summary>
+        public bool Asleep { get; set; }
         public void SetThinking(bool on) { _thinking = on; }
 
         public void Poke()
@@ -104,6 +107,7 @@ namespace Harley
                 case CompanionAction.Spin: _spinT = 0f; break;
                 case CompanionAction.Dance: _danceT = 0f; break;
                 case CompanionAction.Wave: _waveT = 0f; break;
+                case CompanionAction.Celebrate: _celebrateT = 0f; _spinT = 0f; Burst(30, lavender); break;
             }
         }
 
@@ -143,6 +147,11 @@ namespace Harley
             float bobSpeed = emo == Emotion.Excited ? 1.4f : emo == Emotion.Sad || emo == Emotion.Sleepy ? 0.35f : 0.6f;
             float bobAmp = Mathf.Lerp(0.012f, 0.002f, _sitBlend);
             float y = Mathf.Sin(t * Mathf.PI * 2f * bobSpeed) * bobAmp;
+            if (Asleep)
+            {
+                y = Mathf.Sin(t * 1.3f) * 0.004f - 0.01f; // slow breathing, settled down
+                if (t >= _nextZ) { _nextZ = t + 2.2f; Burst(2, lavender); }
+            }
 
             // --- lean into movement ---
             Transform basis = transform.parent != null ? transform.parent : transform;
@@ -151,6 +160,8 @@ namespace Harley
             float roll = Mathf.Clamp(-localVel.x * 18f, -15f, 15f);
             if (emo == Emotion.Curious) roll += 12f;
             if (_thinking) pitch -= 6f; // look up a bit while thinking
+            if (emo == Emotion.Sad) pitch += 8f;            // head down
+            if (Asleep) { pitch += 14f; roll += 6f; }      // nodding off to one side
 
             // --- spin / dance ---
             float yaw = 0f;
@@ -255,6 +266,8 @@ namespace Harley
                 case Emotion.Love:      shapeL = shapeR = new Vector2(1.1f, 0.55f); lift = 0.002f; break;
             }
 
+            if (Asleep) shapeL = shapeR = new Vector2(1.05f, 0.06f);
+
             // Blink
             if (_blinkT < 0f && t >= _nextBlink && emo != Emotion.Sleepy) _blinkT = 0f;
             float blink = 1f;
@@ -301,6 +314,46 @@ namespace Harley
             {
                 l += new Vector3(0f, Mathf.Sin(t * 5f) * 0.008f, 0.01f) * talk;
                 r += new Vector3(0f, Mathf.Sin(t * 5f + 2f) * 0.008f, 0.01f) * talk;
+            }
+
+            // Body language: sad arms hang, excited arms up and wiggling, love hands together, sleepy arms limp
+            Emotion emo = CurrentEmotion;
+            float g = gestureScale;
+            if (Asleep || emo == Emotion.Sleepy)
+            {
+                l += new Vector3(0.004f, -0.02f * g, 0f);
+                r += new Vector3(-0.004f, -0.02f * g, 0f);
+            }
+            else if (emo == Emotion.Sad)
+            {
+                l += new Vector3(0.008f, -0.025f * g, 0.004f);
+                r += new Vector3(-0.008f, -0.025f * g, 0.004f);
+            }
+            else if (emo == Emotion.Excited)
+            {
+                l += new Vector3(-0.01f, (0.06f + Mathf.Sin(t * 14f) * 0.012f) * g, 0.01f);
+                r += new Vector3(0.01f, (0.06f + Mathf.Sin(t * 14f + 1.5f) * 0.012f) * g, 0.01f);
+            }
+            else if (emo == Emotion.Love)
+            {
+                // hands meet over the core
+                l = Vector3.Lerp(l, new Vector3(0f, _handLBase.y + 0.05f * g, _handLBase.z + 0.04f), 0.7f);
+                r = Vector3.Lerp(r, new Vector3(0f, _handRBase.y + 0.05f * g, _handRBase.z + 0.04f), 0.7f);
+            }
+            else if (emo == Emotion.Curious)
+            {
+                r += new Vector3(-0.01f, 0.07f * g, 0.02f); // hand to the "chin"
+            }
+
+            if (_celebrateT >= 0f)
+            {
+                _celebrateT += dt;
+                float k = Mathf.Clamp01(_celebrateT * 6f) * Mathf.Clamp01((2.2f - _celebrateT) * 4f);
+                Vector3 upL = _handLBase + new Vector3(-0.03f, (0.13f + Mathf.Sin(_celebrateT * 18f) * 0.015f) * g, 0.01f);
+                Vector3 upR = _handRBase + new Vector3(0.03f, (0.13f + Mathf.Sin(_celebrateT * 18f + 2f) * 0.015f) * g, 0.01f);
+                l = Vector3.Lerp(l, upL, k);
+                r = Vector3.Lerp(r, upR, k);
+                if (_celebrateT > 2.2f) _celebrateT = -1f;
             }
 
             if (_waveT >= 0f)

@@ -191,9 +191,7 @@ namespace Harley
             bool canWatch = (mode == CompanionMode.Window || WebPanel.Windows.Count > 0) && eyes != null && eyes.CanSee;
             if (!_asleep && !canWatch && interaction && interaction.IdleSeconds > sleepAfterSeconds && !_requestRunning && voice && !voice.IsSpeaking && !voice.IsListening)
             {
-                _asleep = true;
-                visual?.SetEmotion(Emotion.Sleepy);
-                movement?.Perform(CompanionAction.Sit);
+                FallAsleep();
                 voice?.ShowStatus("z z z", 4f);
             }
 
@@ -326,11 +324,59 @@ namespace Harley
             Ask(text, false, false);
         }
 
+        void FallAsleep()
+        {
+            _asleep = true;
+            visual?.SetEmotion(Emotion.Sleepy);
+            if (visual) visual.Asleep = true;
+            movement?.Perform(CompanionAction.Sleep);
+            sounds?.Play(Sfx.ChirpDown, 0.7f, 0.5f);
+        }
+
+        // ---------- hide and seek ----------
+
+        bool _seekHooked;
+
+        /// <summary>Menu button: Harley starts a round of hide and seek.</summary>
+        public void PlayHideAndSeek()
+        {
+            WakeUp();
+            interaction?.MarkActivity();
+            visual?.SetEmotion(Emotion.Excited);
+            voice?.Say("Hide and seek! Close your eyes and count to ten... no peeking!", Emotion.Excited);
+            StartHideAndSeek();
+        }
+
+        void StartHideAndSeek()
+        {
+            var m = movement as CompanionMovement;
+            if (m == null) { movement?.Perform(CompanionAction.Hide); return; }
+            if (!_seekHooked)
+            {
+                _seekHooked = true;
+                m.SeekFound += () =>
+                {
+                    visual?.Perform(CompanionAction.Celebrate);
+                    sounds?.Play(Sfx.Whee, 1.2f);
+                    _lastEventCallAt = -999f; // always answer this one
+                    React("Hide and seek: the player just found you where you were hiding! React (laugh, be a good sport, maybe ask for another round).", Emotion.Excited);
+                };
+                m.SeekGaveUp += () =>
+                {
+                    _lastEventCallAt = -999f;
+                    React("Hide and seek: two minutes passed and the player never found you, so you came out of your hiding place. Tease them a little.", Emotion.Happy);
+                };
+            }
+            m.Perform(CompanionAction.HideAndSeek);
+            sounds?.Play(Sfx.Whee, 0.9f, 0.7f);
+        }
+
         /// <summary>Returns true if it was asleep.</summary>
         bool WakeUp()
         {
             if (!_asleep) return false;
             _asleep = false;
+            if (visual) visual.Asleep = false;
             visual?.SetEmotion(Emotion.Happy);
             visual?.FlashEmotion(Emotion.Surprised, 1f);
             movement?.Perform(CompanionAction.Follow);
@@ -405,6 +451,7 @@ namespace Harley
             _history.Add(new ChatTurn { fromUser = true, text = image != null ? userText + "\n(a picture of what they saw was attached)" : userText });
             _history.Add(new ChatTurn { fromUser = false, text = reply });
             TrimHistory();
+            if (!optional && memory) memory.NoteExchange(userText, r.say);
 
             _lastReplyWantsAnswer = !optional;
             Apply(r);
@@ -445,8 +492,13 @@ namespace Harley
             CompanionAction action = r.GetAction();
             visual?.SetEmotion(emotion);
 
-            if (action == CompanionAction.Spin || action == CompanionAction.Dance || action == CompanionAction.Wave)
+            if (action == CompanionAction.Spin || action == CompanionAction.Dance || action == CompanionAction.Wave || action == CompanionAction.Celebrate)
                 visual?.Perform(action);
+            if (action == CompanionAction.Celebrate) sounds?.Play(Sfx.Whee, 1.1f);
+            if (action == CompanionAction.GoTo || action == CompanionAction.Wander || action == CompanionAction.LookAtThing || action == CompanionAction.ComeClose)
+                sounds?.Play(Sfx.ChirpUp, UnityEngine.Random.Range(1.05f, 1.3f), 0.45f); // little "on my way" beep
+            if (action == CompanionAction.Hide) sounds?.Play(Sfx.Blip, 1.4f, 0.5f);
+            if (action == CompanionAction.HideAndSeek) StartHideAndSeek();
 
             if (action == CompanionAction.Give || action == CompanionAction.TakeBack)
             {
@@ -464,7 +516,13 @@ namespace Harley
                 if (room != null && room.TryFind(r.target, near, out var thing)) movement?.Perform(CompanionAction.GoTo, thing);
                 else movement?.Perform(CompanionAction.LookAtThing);
             }
-            else movement?.Perform(action);
+            else if (action == CompanionAction.Sleep)
+            {
+                if (!string.IsNullOrWhiteSpace(r.say)) voice?.Say(r.say, emotion);
+                FallAsleep();
+                return;
+            }
+            else if (action != CompanionAction.HideAndSeek) movement?.Perform(action);
 
             if (!string.IsNullOrWhiteSpace(r.say)) voice?.Say(r.say, emotion);
         }
@@ -556,7 +614,9 @@ namespace Harley
                 actions =
                     "Actions: stay (hover where you are), follow (float beside the player, the default), come_close (come right up to their face), " +
                     "wander (explore the room), look_at_thing (fly over to what the player is looking at), go_to (fly to a named thing in the room list), " +
-                    "sit (sit on the nearest table or couch), hide (playfully hide behind the player), spin, dance, wave.";
+                    "sit (sit on the nearest table or couch), hide (duck behind the nearest furniture for a moment), spin, dance, wave, " +
+                    "celebrate (arms up, spin and sparkles: for good news or a win), sleep (settle down on furniture and take a nap; any touch or word wakes you), " +
+                    "hide_and_seek (when the player wants to play hide and seek, or you invite them and they agree: say something like 'close your eyes and count to ten!' and you fly off to hide behind furniture; the game tells you when they find you).";
             }
 
             var pocketComp = GetComponent<HarleyPocket>();

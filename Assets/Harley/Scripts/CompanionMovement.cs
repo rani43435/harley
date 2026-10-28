@@ -57,6 +57,12 @@ namespace Harley
         public override bool IsHeld => _held;
         public override bool IsFlying => _flying;
         public override string CurrentPlace => _place;
+        /// <summary>Hide and seek: Harley is hiding and waiting to be found.</summary>
+        public bool IsSeekHiding => CurrentAction == CompanionAction.HideAndSeek;
+        /// <summary>Hide and seek: the player found Harley.</summary>
+        public event Action SeekFound;
+        /// <summary>Hide and seek: nobody found Harley in time.</summary>
+        public event Action SeekGaveUp;
 
         Vector3 _lookPoint;
         bool _sitting, _held, _flying;
@@ -112,7 +118,20 @@ namespace Harley
                 case CompanionAction.Wander:      BuildWander(); _actionUntil = Time.time + 20f; break;
                 case CompanionAction.LookAtThing: AimAtThing(); _actionUntil = Time.time + 7f; break;
                 case CompanionAction.Sit:         _sitSpot = FindSitSpot(); _skipLineOfSight = true; _actionUntil = float.PositiveInfinity; break;
-                case CompanionAction.Hide:        _actionUntil = Time.time + 5.5f; break;
+                case CompanionAction.Hide:
+                    _actionUntil = Time.time + 6f;
+                    _hideBehind = FindHideSpot(false, out _hideSpot, out _place);
+                    _skipLineOfSight = _hideBehind;
+                    break;
+                case CompanionAction.HideAndSeek:
+                    _actionUntil = Time.time + 120f;
+                    _seekArrivedAt = -1f;
+                    _hideBehind = FindHideSpot(true, out _hideSpot, out _);
+                    if (!_hideBehind) _hideSpot = FallbackSeekSpot();
+                    _skipLineOfSight = true;
+                    break;
+                case CompanionAction.Sleep:       _sitSpot = FindSitSpot(); _skipLineOfSight = true; _actionUntil = float.PositiveInfinity; break;
+                case CompanionAction.Celebrate:   _actionUntil = Time.time + 2.5f; _target = transform.position; break;
                 case CompanionAction.Spin:        _actionUntil = Time.time + 1.2f; _target = transform.position; break;
                 case CompanionAction.Dance:       _actionUntil = Time.time + 3.5f; _target = transform.position; break;
                 case CompanionAction.Wave:        _actionUntil = Time.time + 2f; _target = transform.position; break;
@@ -142,6 +161,9 @@ namespace Harley
 
         Vector3 _flyLook;
         float _flyLookUntil;
+        Vector3 _hideSpot;
+        bool _hideBehind;
+        float _seekArrivedAt = -1f;
 
         /// <summary>Stay put right here for a while (after being placed by hand).</summary>
         public void StayHere(float seconds)
@@ -196,7 +218,12 @@ namespace Harley
             if (IsHeld) { UpdateHeld(dt); FaceLookPoint(); return; }
             if (IsFlying) { UpdateFlying(dt); return; }
 
-            if (Time.time >= _actionUntil) Perform(CompanionAction.Follow);
+            if (Time.time >= _actionUntil)
+            {
+                bool gaveUp = CurrentAction == CompanionAction.HideAndSeek;
+                Perform(CompanionAction.Follow);
+                if (gaveUp) SeekGaveUp?.Invoke();
+            }
 
             float smooth = smoothTime;
             _lookPoint = head.position;
@@ -232,6 +259,7 @@ namespace Harley
                     break;
 
                 case CompanionAction.Sit:
+                case CompanionAction.Sleep:
                     _target = _sitSpot + Vector3.up * (bodyRadius * 0.92f + standHeight);
                     _sitting = Vector3.Distance(transform.position, _target) < 0.05f;
                     if (Vector3.Distance(Flat3(head.position), Flat3(_sitSpot)) > 2.8f) Perform(CompanionAction.Follow);
@@ -249,6 +277,32 @@ namespace Harley
                     break;
                 }
 
+                case CompanionAction.HideAndSeek:
+                {
+                    smooth = smoothTime * 0.8f;
+                    _target = _hideSpot;
+                    bool there = Vector3.Distance(transform.position, _target) < 0.12f;
+                    if (there && _seekArrivedAt < 0f) _seekArrivedAt = Time.time;
+                    // Peek at you while you search
+                    _lookPoint = head.position;
+                    if (_seekArrivedAt > 0f && Time.time - _seekArrivedAt > 1.5f)
+                    {
+                        Vector3 toMe = transform.position - head.position;
+                        float ang = Vector3.Angle(head.forward, toMe);
+                        if (toMe.magnitude < 1.7f && ang < 28f)
+                        {
+                            Perform(CompanionAction.ComeClose);
+                            SeekFound?.Invoke();
+                        }
+                    }
+                    break;
+                }
+
+                case CompanionAction.Hide when _hideBehind:
+                    _target = _hideSpot;
+                    _lookPoint = head.position;
+                    break;
+
                 case CompanionAction.Hide:
                 {
                     Vector3 f = Flat(head.forward);
@@ -259,7 +313,7 @@ namespace Harley
                     break;
                 }
 
-                default: // Stay, Spin, Dance, Wave: hold position
+                default: // Stay, Spin, Dance, Wave, Celebrate: hold position
                     if (Time.time < _flyLookUntil) { _lookPoint = _flyLook; smooth = smoothTime * 0.7f; }
                     break;
             }
@@ -439,6 +493,55 @@ namespace Harley
             Vector3 n = t.normal.sqrMagnitude > 0.0001f ? t.normal.normalized : Flat(head.position - t.center);
             _goTarget = t.center + n * 0.35f;
             _goTarget.y = Mathf.Clamp(_goTarget.y, floorY + 0.35f, head.position.y + 0.3f);
+        }
+
+        // ---------- hiding ----------
+
+        /// <summary>
+        /// A spot low down on the far side of a piece of furniture (from the room scan).
+        /// forGame: prefer places you are not looking at, a bit random, so it's a real search.
+        /// </summary>
+        bool FindHideSpot(bool forGame, out Vector3 spot, out string placeName)
+        {
+            spot = Vector3.zero;
+            placeName = "";
+            if (room == null || !room.HasRoom) return false;
+            float best = float.MaxValue;
+            bool found = false;
+            float low = floorY + bodyRadius * 0.92f + standHeight;
+            foreach (var t in room.Things)
+            {
+                if (t == null || !t.isVolume) continue;
+                float h = t.top.y - floorY;
+                if (h < 0.3f || h > 2.4f) continue;
+                Vector3 away = Flat(t.center - head.position);
+                if (away.sqrMagnitude < 0.0001f) continue;
+                float d = Vector3.Distance(Flat3(head.position), Flat3(t.center));
+                if (d < 0.7f || d > 5f) continue;
+                float reach = Mathf.Max(t.size.x, t.size.z) * 0.5f + 0.16f;
+                Vector3 p = t.center + away * reach;
+                p.y = Mathf.Min(low, t.top.y - 0.04f);
+                p.y = Mathf.Max(p.y, floorY + 0.12f);
+                if (Physics.CheckSphere(p, bodyRadius * 0.8f, roomLayers, QueryTriggerInteraction.Ignore)) continue;
+                float score = forGame
+                    ? -Vector3.Angle(Flat(head.forward), away) * 0.02f + d * 0.15f + UnityEngine.Random.value * 1.2f
+                    : d;
+                if (score < best) { best = score; spot = p; placeName = t.name; found = true; }
+            }
+            return found;
+        }
+
+        /// <summary>No furniture to hide behind: somewhere behind you, low, to one side.</summary>
+        Vector3 FallbackSeekSpot()
+        {
+            Vector3 f = Flat(head.forward);
+            Vector3 dir = Quaternion.Euler(0f, UnityEngine.Random.Range(120f, 240f), 0f) * f;
+            Vector3 p = head.position + dir * UnityEngine.Random.Range(1.6f, 2.6f);
+            p.y = floorY + bodyRadius * 0.92f + standHeight + 0.05f;
+            if (Physics.Linecast(head.position, p, out RaycastHit hit, roomLayers, QueryTriggerInteraction.Ignore))
+                p = hit.point - dir * 0.25f;
+            p.y = floorY + bodyRadius * 0.92f + standHeight + 0.05f;
+            return p;
         }
 
         // ---------- sit ----------

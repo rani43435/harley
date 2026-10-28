@@ -103,6 +103,7 @@ namespace Harley
             if (head == null && Camera.main != null) head = Camera.main.transform;
             if (autoConnectVoiceSDK) AutoConnect();
             ConnectWit();
+            ConnectNative();
 #if UNITY_ANDROID && !UNITY_EDITOR
             // Speech-to-text needs the microphone: ask once, up front.
             if (HasDictation && !UnityEngine.Android.Permission.HasUserAuthorizedPermission(UnityEngine.Android.Permission.Microphone))
@@ -126,6 +127,19 @@ namespace Harley
         }
 
         bool _witSpeaking;
+
+        // ---------- the headset's own voice (free, offline) ----------
+
+        NativeVoice _native;
+        bool _nativeSpeaking;
+        bool NativeSpeaks => _native != null && _native.Ready && (config == null || config.deviceVoice);
+
+        void ConnectNative()
+        {
+            _native = GetComponent<NativeVoice>();
+            if (!_native) _native = gameObject.AddComponent<NativeVoice>();
+            if (config != null) { _native.pitch = config.deviceVoicePitch; _native.rate = config.deviceVoiceRate; }
+        }
 
         void OnWitTranscribed(string text)
         {
@@ -305,12 +319,19 @@ namespace Harley
             _speakDuration = EstimateDuration(text);
             _ttsReportsTiming = false;
             _babbling = false;
+            _nativeSpeaking = false;
 
             bool preferBabble = config != null && config.babble && config.babbleEvenWithTTS;
             if (HasTts && !preferBabble)
             {
                 if (_autoTts) InvokeSafe(_ttsSpeak, _tts, text);
                 else if (WitSpeaks) { _witSpeaking = true; wit.Speak(text); _speakDuration += 4f; } // + time to fetch the audio
+                onSpeak?.Invoke(text);
+            }
+            else if (!preferBabble && NativeSpeaks && _native.Speak(text, NativeVoice.Guess(text, config != null ? config.witLanguage : "en")))
+            {
+                _nativeSpeaking = true;
+                _speakDuration += 1.5f; // ends early when the device says it's done
                 onSpeak?.Invoke(text);
             }
             else if (sounds != null && (config == null || config.babble))
@@ -332,6 +353,7 @@ namespace Harley
             if (_babbling) sounds?.StopBabble();
             if (_autoTts) InvokeSafe(_ttsStop, _tts);
             if (_witSpeaking) { _witSpeaking = false; wit.StopSpeaking(); }
+            if (_nativeSpeaking) { _nativeSpeaking = false; _native.Stop(); }
             onStopSpeaking?.Invoke();
             _subtitleHideAt = Time.time + 0.5f;
         }
@@ -376,10 +398,15 @@ namespace Harley
             }
             if (IsListening && _micStoppedAt > 0f && t - _micStoppedAt > 2.5f) StopListening(); // mic closed, nothing came
 
+            // Device voice finished (it reports while it's talking; give it a moment to start)
+            if (_nativeSpeaking && IsSpeaking && t - _speakStarted > 0.8f && !_native.IsSpeaking)
+                _speakEndsAt = t;
+
             if (IsSpeaking && t >= _speakEndsAt)
             {
                 IsSpeaking = false;
                 _babbling = false;
+                _nativeSpeaking = false;
                 _subtitleHideAt = t + subtitleHoldSeconds;
             }
 
