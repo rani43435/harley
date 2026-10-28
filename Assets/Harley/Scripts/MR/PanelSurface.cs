@@ -42,7 +42,8 @@ namespace Harley
             if (t <= 0f) return false;
             Vector3 p = origin + dir * t;
             Vector3 d = p - transform.position;
-            var local = new Vector2(Vector3.Dot(d, transform.right), Vector3.Dot(d, transform.up));
+            float s = Mathf.Max(1e-4f, transform.lossyScale.x); // panels can be resized by scaling them
+            var local = new Vector2(Vector3.Dot(d, transform.right), Vector3.Dot(d, transform.up)) / s;
             if (!anywhereOnPlane && (Mathf.Abs(local.x) > size.x * 0.5f || Mathf.Abs(local.y) > size.y * 0.5f)) return false;
             hit = new PanelPointer { origin = origin, direction = dir, world = p, local = local, distance = t };
             return true;

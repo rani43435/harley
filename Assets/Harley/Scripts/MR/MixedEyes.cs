@@ -36,7 +36,7 @@ namespace Harley
             float bestAngle = lookAngle;
             foreach (var p in WebPanel.Windows)
             {
-                if (p == null || p.PageTexture == null) continue;
+                if (p == null || p.PageTexture == null || p.Minimized) continue;
                 if (p.Raycast(head.position, head.forward, out _)) return p;
                 float a = Vector3.Angle(head.forward, p.transform.position - head.position);
                 if (a < bestAngle) { bestAngle = a; best = p; }

@@ -36,7 +36,7 @@ namespace Harley
         public Texture PageTexture => _frames > 0 ? (Texture)_tex : null;
         /// <summary>YouTube TV (youtube.com/tv) is open: arrows / OK / Back drive it.</summary>
         public bool TvMode => (_url ?? "").Contains("youtube.com/tv");
-        public float LastUsed { get; private set; }
+        public float LastUsed { get; set; }
 
         RawImage _page;
         TextMeshProUGUI _titleLabel, _placeholder;
@@ -49,6 +49,7 @@ namespace Harley
         GameObject _tvKeys;
         float _nextStickKey;
         bool _wasTv;
+        int _focusSeq;
 
 #if UNITY_ANDROID && !UNITY_EDITOR
         AndroidJavaObject _web;
@@ -67,7 +68,7 @@ namespace Harley
         {
             // One window per app: bring it back instead of opening a second one.
             foreach (var w in Windows)
-                if (w != null && w.App == app) { w.ShowInFront(1.1f, 0.0f); return w; }
+                if (w != null && w.App == app) { if (w.Minimized) w.Restore(); w.LastUsed = Time.unscaledTime; return w; }
             return Open(app.url, app, head);
         }
 
@@ -79,13 +80,39 @@ namespace Harley
             p.App = app;
             p.head = head;
             p.size = new Vector2(1.0f, 0.5625f + ToolbarPx / PixelsPerMeter);
+            p.resizable = true;
             p.EnsureBuilt();
-            p.ShowInFront(1.1f, 0.0f, Windows.Count <= 1 ? 0f : 0.3f * (Windows.Count - 1));
+            HarleyWindows.Place(p, head); // side by side, like Quest's home
             return p;
         }
 
         protected override void OnEnable() { base.OnEnable(); if (!Windows.Contains(this)) Windows.Add(this); }
-        protected override void OnDisable() { base.OnDisable(); Windows.Remove(this); }
+        protected override void OnDisable() { base.OnDisable(); Windows.Remove(this); HarleyWindows.Forget(this); }
+
+        // ---------- minimize to the dock ----------
+
+        /// <summary>Hidden in the dock, still running (sound keeps playing).</summary>
+        public bool Minimized { get; private set; }
+        public override bool Interactable => base.Interactable && !Minimized;
+
+        public void Minimize()
+        {
+            if (Minimized) return;
+            Minimized = true;
+            if (Root) Root.gameObject.SetActive(false);
+            if (_overlay) _overlay.gameObject.SetActive(false);
+            HarleyWindows.Release(this);
+        }
+
+        public void Restore()
+        {
+            LastUsed = Time.unscaledTime;
+            if (!Minimized) return;
+            Minimized = false;
+            if (Root) Root.gameObject.SetActive(true);
+            if (_overlay) _overlay.gameObject.SetActive(true);
+            HarleyWindows.Place(this, head);
+        }
 
         protected override void Build()
         {
@@ -102,6 +129,7 @@ namespace Harley
             // Right: type / enter / close
             float right = w - 12f;
             right -= 40; PlaceTL(AddButton(c, "X", Close, new Color(0.62f, 0.18f, 0.26f, 0.9f), 17).rect, right, y, 40, h); right -= 6;
+            right -= 40; PlaceTL(AddButton(c, "_", Minimize, ghost, 20).rect, right, y, 40, h); right -= 6;
             right -= 56; PlaceTL(AddButton(c, "Enter", PressEnter, ghost, 16).rect, right, y, 56, h); right -= 6;
             right -= 62; PlaceTL(AddButton(c, "Type", TypeText, primary, 17).rect, right, y, 62, h); right -= 10;
 
@@ -219,7 +247,7 @@ namespace Harley
 #if UNITY_ANDROID && !UNITY_EDITOR
             if (_web == null) return;
             int frame = _web.Call<int>("getFrameCount");
-            if (frame != _lastFrame && _bufferAddress != IntPtr.Zero)
+            if (!Minimized && frame != _lastFrame && _bufferAddress != IntPtr.Zero)
             {
                 _lastFrame = frame;
                 _tex.LoadRawTextureData(_bufferAddress, pageWidth * pageHeight * 4);
@@ -241,6 +269,21 @@ namespace Harley
                 bool loading = _web.Call<bool>("isLoading");
                 string shown = App != null ? App.name : _title.Length > 0 ? _title : _url;
                 if (_titleLabel) _titleLabel.text = (loading ? "Loading...  " : "") + shown;
+            }
+            // A text box on the page got focus (search, chat, login): open Harley's keyboard for it
+            int focus = _web.Call<int>("getFocusSeq");
+            if (focus != _focusSeq)
+            {
+                _focusSeq = focus;
+                if (!Minimized && !TvMode && !HarleyKeyboard.IsOpen && Time.unscaledTime - LastUsed < 3f)
+                {
+                    string current = _web.Call<string>("getFocusValue") ?? "";
+                    HarleyKeyboard.Open(current, App != null ? App.name : "Type here", text =>
+                    {
+                        _web?.Call("setText", text ?? "");
+                        _web?.Call("pressEnter");
+                    });
+                }
             }
             if (_noteBg != null && Time.unscaledTime > _noteUntil) { Destroy(_noteBg); Destroy(_note.gameObject); _noteBg = null; }
             if (TvMode != _wasTv)
@@ -299,7 +342,7 @@ namespace Harley
         void LateUpdate()
         {
             // The compositor can't show the layer (e.g. not on a headset): fall back to the normal picture.
-            if (_overlay != null && Time.frameCount % 30 == 0 && _frames > 60 && !_overlay.isOverlayVisible && _page.material == _hole)
+            if (_overlay != null && !Minimized && Time.frameCount % 30 == 0 && _frames > 60 && !_overlay.isOverlayVisible && _page.material == _hole)
             {
                 Debug.LogWarning("[Harley] Sharp layer not visible, using the normal page.");
                 _page.material = null;

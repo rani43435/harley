@@ -29,6 +29,9 @@ namespace Harley
         public Transform head;
         [Tooltip("Height of the grab bar under the panel, meters.")]
         public float barHeight = 0.028f;
+        [Tooltip("Handles in the bottom corners make the panel bigger or smaller.")]
+        public bool resizable;
+        public float minScale = 0.5f, maxScale = 2.6f;
 
         public class PanelButton
         {
@@ -46,7 +49,9 @@ namespace Harley
         protected Canvas Canvas { get; private set; }
         readonly List<PanelButton> _buttons = new List<PanelButton>();
         PanelButton _pressed;
-        Image _bar;
+        Image _bar, _resizeL, _resizeR;
+        bool _resizing;
+        float _resizeStartDist, _resizeStartScale;
         bool _dragging;
         float _dragDistance;
         Vector3 _dragOffset;
@@ -98,6 +103,16 @@ namespace Harley
                 Place(_bar.rectTransform, new Vector2(0.38f, 0), new Vector2(0.62f, 0), new Vector2(0, barPx * 0.3f), new Vector2(0, barPx * 0.62f));
             }
 
+            // Resize handles: little curved corners at the bottom, like Quest windows
+            if (resizable && barHeight > 0f)
+            {
+                float barPx = barHeight * PixelsPerMeter;
+                _resizeL = Box(Root, "Resize L", new Color(1f, 1f, 1f, 0.3f));
+                Place(_resizeL.rectTransform, Vector2.zero, Vector2.zero, new Vector2(4, barPx * 0.25f), new Vector2(52, barPx * 0.7f));
+                _resizeR = Box(Root, "Resize R", new Color(1f, 1f, 1f, 0.3f));
+                Place(_resizeR.rectTransform, new Vector2(1, 0), new Vector2(1, 0), new Vector2(-52, barPx * 0.25f), new Vector2(-4, barPx * 0.7f));
+            }
+
             // The surface includes the bar
             size = new Vector2(size.x, size.y + barHeight);
         }
@@ -119,6 +134,13 @@ namespace Harley
 
         public override void PointerDown(PanelPointer p)
         {
+            if (OnResize(p.world))
+            {
+                _resizing = true;
+                _resizeStartDist = Mathf.Max(0.05f, Vector3.Distance(p.world, transform.position));
+                _resizeStartScale = transform.localScale.x;
+                return;
+            }
             if (OnBar(p.world))
             {
                 _dragging = true;
@@ -134,6 +156,18 @@ namespace Harley
 
         public override void PointerDrag(PanelPointer p)
         {
+            if (_resizing)
+            {
+                Vector3 n = transform.forward;
+                float denom = Vector3.Dot(p.direction, n);
+                if (Mathf.Abs(denom) < 1e-4f) return;
+                float t = Vector3.Dot(transform.position - p.origin, n) / denom;
+                if (t <= 0f) return;
+                Vector3 hit = p.origin + p.direction * t;
+                float s = _resizeStartScale * Vector3.Distance(hit, transform.position) / _resizeStartDist;
+                transform.localScale = Vector3.one * Mathf.Clamp(s, minScale, maxScale);
+                return;
+            }
             if (_dragging)
             {
                 Vector3 target = p.origin + p.direction * _dragDistance + _dragOffset;
@@ -146,6 +180,7 @@ namespace Harley
 
         public override void PointerUp(PanelPointer p)
         {
+            if (_resizing) { _resizing = false; return; }
             if (_dragging) { _dragging = false; return; }
             if (_pressed != null)
             {
@@ -166,6 +201,19 @@ namespace Harley
         protected virtual void ContentDown(PanelPointer p) { }
         protected virtual void ContentDrag(PanelPointer p) { }
         protected virtual void ContentUp(PanelPointer p) { }
+
+        bool OnResize(Vector3 world)
+        {
+            foreach (var h in new[] { _resizeL, _resizeR })
+            {
+                if (h == null) continue;
+                Vector3 lp = h.rectTransform.InverseTransformPoint(world);
+                Rect r = h.rectTransform.rect;
+                r.xMin -= 24; r.xMax += 24; r.yMin -= 20; r.yMax += 30;
+                if (r.Contains(lp)) return true;
+            }
+            return false;
+        }
 
         bool OnBar(Vector3 world)
         {
@@ -194,6 +242,7 @@ namespace Harley
                 b.image.color = c;
             }
             if (_bar) _bar.color = new Color(1f, 1f, 1f, _dragging ? 0.6f : 0.22f);
+            if (_resizeL) _resizeL.color = _resizeR.color = new Color(1f, 1f, 1f, _resizing ? 0.7f : 0.3f);
         }
 
         // ---------- placing ----------

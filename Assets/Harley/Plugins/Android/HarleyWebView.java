@@ -58,6 +58,28 @@ public class HarleyWebView {
     private String normalUa, desktopUa;
     private volatile int identity = 0; // 0 phone (normal), 1 desktop, 2 TV for youtube.com/tv
 
+    // A text field on the page got focus: Harley opens her keyboard for it
+    private volatile int focusSeq = 0;
+    private volatile String focusValue = "";
+    private volatile boolean inputFocused = false;
+
+    private class InputBridge {
+        @android.webkit.JavascriptInterface public void focus(String value, String type) {
+            if ("password".equals(type)) value = "";
+            focusValue = value != null ? value : ""; inputFocused = true; focusSeq++;
+        }
+        @android.webkit.JavascriptInterface public void blur() { inputFocused = false; }
+    }
+
+    private static final String FOCUS_JS =
+        "(function(){if(window.__harleyFocus)return;window.__harleyFocus=1;" +
+        "function ok(e){if(!e)return false;if(e.isContentEditable)return true;var t=(e.tagName||'').toLowerCase();" +
+        "if(t=='textarea')return true;if(t!='input')return false;var y=(e.type||'text').toLowerCase();" +
+        "return ['text','search','email','url','tel','password','number'].indexOf(y)>=0;}" +
+        "document.addEventListener('focusin',function(v){var e=v.target;if(ok(e))HarleyInput.focus(e.value||e.innerText||'',e.type||'');},true);" +
+        "document.addEventListener('focusout',function(v){if(ok(v.target))HarleyInput.blur();},true);" +
+        "})();";
+
     /** youtube.com/tv only opens for TVs: same Samsung TV browser identity as the Ambient Video app. */
     private static final String TV_UA = "Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) 76.0.3809.146/6.0 TV Safari/537.36";
 
@@ -126,7 +148,11 @@ public class HarleyWebView {
                 if (isTv(u) != isTv(v.getUrl())) { uaFor(u); v.loadUrl(u); return true; }
                 return false;
             }
-            @Override public void onPageFinished(WebView v, String u) { loading = false; url = u; String t = v.getTitle(); title = t != null ? t : ""; }
+            @Override public void onPageFinished(WebView v, String u) {
+                loading = false; url = u; String t = v.getTitle(); title = t != null ? t : "";
+                inputFocused = false;
+                v.evaluateJavascript(FOCUS_JS, null);
+            }
         });
         web.setWebChromeClient(new WebChromeClient() {
             @Override public void onReceivedTitle(WebView v, String t) { title = t != null ? t : ""; }
@@ -143,6 +169,7 @@ public class HarleyWebView {
         root.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         presentation.setContentView(root);
         presentation.show();
+        web.addJavascriptInterface(new InputBridge(), "HarleyInput");
         if (startUrl != null && startUrl.length() > 0) { uaFor(startUrl); web.loadUrl(startUrl); }
         ready = true;
     }
@@ -196,6 +223,21 @@ public class HarleyWebView {
     public String getTitle() { return title; }
     public String getUrl() { return url; }
     public boolean isLoading() { return loading; }
+    public int getFocusSeq() { return focusSeq; }
+    public String getFocusValue() { return focusValue; }
+    public boolean isInputFocused() { return inputFocused; }
+
+    /** Replaces the text of the focused field (Harley's keyboard gives back the whole text). */
+    public void setText(final String text) {
+        final String js =
+            "(function(t){var e=document.activeElement;if(!e)return;" +
+            "if(e.isContentEditable){e.focus();document.execCommand('selectAll',false,null);document.execCommand('insertText',false,t);return;}" +
+            "if(!('value' in e))return;" +
+            "var p=Object.getPrototypeOf(e),d=Object.getOwnPropertyDescriptor(p,'value');" +
+            "if(d&&d.set)d.set.call(e,t);else e.value=t;" +
+            "e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));})(" + quote(text) + ");";
+        ui(new Runnable() { @Override public void run() { if (web != null) web.evaluateJavascript(js, null); } });
+    }
 
     public void loadUrl(final String u) {
         ui(new Runnable() { @Override public void run() { if (web != null) { exitFullscreen(); uaFor(u); web.loadUrl(u); } } });
