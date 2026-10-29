@@ -3,8 +3,9 @@
 Harley Bridge: lets Harley (on the Quest) hand tasks to the AI agent on YOUR computer.
 
 Everyone uses their own account: log in to your agent's CLI once (claude, codex, gemini...),
-pick it in bridge_config.json, run this script, and put the address + token it prints into
-Harley's config (CompanionConfig > Computer). No API keys pass through Harley or this bridge.
+pick it in bridge_config.json and run this script. In Harley's menu tap Computer: Harley finds this
+computer on your Wi-Fi, a 6-digit code shows here, type it into Harley. No API keys pass through
+Harley or this bridge.
 
   python3 harley_bridge.py            start (creates bridge_config.json the first time)
   python3 harley_bridge.py --agents   show which agents are installed
@@ -72,6 +73,10 @@ DEFAULT_CONFIG = {
 PREFIX = ("You are being asked by voice, through Harley (a VR companion) on the user's headset. "
           "Do the task in this folder. When done, end with a short plain summary (max 3 sentences, no markdown) "
           "of what you did or found, because it will be read out loud.\n\nTask: ")
+
+DISCOVERY_PORT = 8766
+PAIR = {"code": None, "until": 0, "tries": 0}
+PAIR_LOCK = threading.Lock()
 
 JOBS = {}
 JOBS_LOCK = threading.Lock()
@@ -177,14 +182,46 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200 if job else 404, job or {"error": "no such job"})
         self.send(404, {"error": "not found"})
 
+    def read_json(self):
+        n = min(int(self.headers.get("Content-Length", "0") or 0), 20000)
+        return json.loads(self.rfile.read(n) or b"{}")
+
+    def pair(self):
+        """Harley asks to pair: a code shows here; the player types it into Harley; Harley gets the token."""
+        if self.path == "/pair/start":
+            with PAIR_LOCK:
+                PAIR.update(code=f"{secrets.randbelow(1000000):06d}", until=time.time() + 120, tries=0)
+                code = PAIR["code"]
+            print("\n" + "=" * 44)
+            print(f"   Harley wants to connect. Code:  {code[:3]} {code[3:]}")
+            print("   Type it into Harley (valid 2 minutes).")
+            print("=" * 44 + "\n")
+            return self.send(200, {"ok": True, "name": socket.gethostname()})
+        try:
+            code = str(self.read_json().get("code", "")).replace(" ", "").strip()
+        except Exception:  # noqa: BLE001
+            return self.send(400, {"error": "bad json"})
+        with PAIR_LOCK:
+            live = PAIR["code"] and time.time() < PAIR["until"] and PAIR["tries"] < 5
+            ok = bool(live) and hmac.compare_digest(code.encode(), PAIR["code"].encode())
+            PAIR["tries"] += 1
+            if ok or not live:
+                PAIR["code"] = None
+        if not ok:
+            time.sleep(1)
+            return self.send(401, {"error": "wrong or expired code" if live else "code expired, start again"})
+        print("Harley connected.")
+        return self.send(200, {"token": self.cfg["token"], "agent": self.cfg["agent"], "name": socket.gethostname()})
+
     def do_POST(self):
+        if self.path in ("/pair/start", "/pair/finish"):
+            return self.pair()
         if not self.authed():
             return
         if self.path != "/run":
             return self.send(404, {"error": "not found"})
         try:
-            n = min(int(self.headers.get("Content-Length", "0")), 20000)
-            data = json.loads(self.rfile.read(n) or b"{}")
+            data = self.read_json()
         except Exception:  # noqa: BLE001
             return self.send(400, {"error": "bad json"})
         prompt = (data.get("prompt") or "").strip()
@@ -201,6 +238,26 @@ class Handler(BaseHTTPRequestHandler):
         print(f"[{time.strftime('%H:%M:%S')}] job {job_id[:8]} -> {agent}: {prompt[:80]}")
         threading.Thread(target=run_job, args=(self.cfg, job_id, prompt, agent), daemon=True).start()
         self.send(200, {"id": job_id, "agent": agent})
+
+
+def discovery(cfg):
+    """Answers Harley's 'is there a bridge here?' broadcast on the local network."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        s.bind(("", DISCOVERY_PORT))
+    except OSError as e:
+        print("Discovery off (port busy):", e)
+        return
+    reply = json.dumps({"harley_bridge": 1, "name": socket.gethostname(), "port": cfg["port"],
+                        "agent": cfg["agent"]}).encode()
+    while True:
+        try:
+            data, addr = s.recvfrom(256)
+            if data.strip() == b"HARLEY_DISCOVER":
+                s.sendto(reply, addr)
+        except OSError:
+            time.sleep(1)
 
 
 def local_ips():
@@ -228,12 +285,13 @@ def main():
         print(f"Warning: '{cfg['agent']}' is not installed. Run with --agents to see what you have.")
     Handler.cfg = cfg
     srv = ThreadingHTTPServer((cfg["host"], cfg["port"]), Handler)
+    threading.Thread(target=discovery, args=(cfg,), daemon=True).start()
     print("\nHarley Bridge is running.")
     print("  Agent:  ", cfg["agent"], "-", cfg["agents"][cfg["agent"]]["name"])
     print("  Folder: ", os.path.expanduser(cfg["workdir"]))
     for ip in local_ips():
         print(f"  Address: http://{ip}:{cfg['port']}")
-    print("  Token:   in bridge_config.json (copy it into Harley's config yourself)")
+    print("  To connect: in Harley's menu tap Computer, pick this computer, type the code shown here.")
     print("Keep this window open. Ctrl+C to stop.\n")
     try:
         srv.serve_forever()

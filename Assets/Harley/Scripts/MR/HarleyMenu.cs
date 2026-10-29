@@ -24,7 +24,7 @@ namespace Harley
         protected override void Awake()
         {
             base.Awake();
-            size = new Vector2(0.48f, 0.47f);
+            size = new Vector2(0.48f, 0.52f);
         }
 
         protected override void Start()
@@ -97,7 +97,13 @@ namespace Harley
             PlaceTL(_learn.rect, L + (tw + tg), y, tw, 42);
             PlaceTL(AddButton(c, "Forget me", ForgetMe, null, 17).rect, L + 2 * (tw + tg), y, tw, 42);
             PlaceTL(AddButton(c, "Close", () => gameObject.SetActive(false), null, 17).rect, L + 3 * (tw + tg), y, tw, 42);
+
+            y += 50f;
+            _computer = AddButton(c, "Computer", () => { gameObject.SetActive(false); ComputerPanel.Show(head); }, null, 17);
+            PlaceTL(_computer.rect, L, y, W, 42);
         }
+
+        PanelButton _computer;
 
         PanelButton _learn;
 
@@ -219,6 +225,13 @@ namespace Harley
         void UpdateStatus()
         {
             _nextStatus = Time.unscaledTime + 0.3f;
+            if (_computer != null)
+            {
+                var pc = HarleyComputer.Instance;
+                _computer.label.text = pc == null || !pc.Available ? "Computer: connect your own AI (Claude Code, Codex...)"
+                    : (pc.Connected ? "Computer: " + (string.IsNullOrEmpty(pc.ComputerName) ? "connected" : pc.ComputerName) + " (" + (string.IsNullOrEmpty(pc.AgentName) ? "default" : pc.AgentName) + ")" + (pc.Busy ? " - working..." : "")
+                                    : "Computer: not reachable");
+            }
             if (_learn != null && HarleyLanguage.Instance != null) _learn.label.text = HarleyLanguage.Instance.Active ? HarleyLanguage.Instance.Language : "Learn";
             if (_status == null) return;
             var cfg = brain != null ? brain.config : null;

@@ -1,7 +1,10 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 using UnityEngine;
 using UnityEngine.Networking;
 
@@ -22,7 +25,19 @@ namespace Harley
         public string CurrentTask { get; private set; } = "";
 
         CompanionConfig Config => brain != null ? brain.config : null;
-        public bool Available => Config != null && Config.HasComputer;
+
+        // Paired in the app (menu > Computer) wins over the Unity config
+        const string PrefUrl = "harley.pc.url", PrefToken = "harley.pc.token", PrefAgent = "harley.pc.agent", PrefName = "harley.pc.name";
+        public string Url => PlayerPrefs.GetString(PrefUrl, Config != null ? Config.computerBridgeUrl : "").Trim().TrimEnd('/');
+        string Token => PlayerPrefs.GetString(PrefToken, Config != null ? Config.computerBridgeToken : "").Trim();
+        public string Agent => PlayerPrefs.GetString(PrefAgent, Config != null ? Config.computerAgent : "").Trim().ToLowerInvariant();
+        public string ComputerName => PlayerPrefs.GetString(PrefName, "");
+        public bool Available => !string.IsNullOrEmpty(Url) && !string.IsNullOrEmpty(Token);
+        public bool Connected { get; private set; }
+
+        public class Found { public string name, url, agent; }
+        public class AgentInfo { public string id, name; public bool installed; }
+        public readonly List<AgentInfo> Agents = new List<AgentInfo>();
 
         void Awake()
         {
@@ -32,15 +47,106 @@ namespace Harley
 
         IEnumerator Start()
         {
-            if (!Available) yield break;
-            // Which agents does this computer have? (also checks the address and token)
+            yield return Check(null);
+        }
+
+        /// <summary>Talks to the bridge: is it there, which agents does it have.</summary>
+        public IEnumerator Check(Action<bool> done)
+        {
+            Connected = false;
+            if (!Available) { done?.Invoke(false); yield break; }
             yield return Get("/agents", resp =>
             {
-                string want = (Config.computerAgent ?? "").Trim().ToLowerInvariant();
+                Agents.Clear();
+                if (resp.TryGetValue("agents", out var list) && list is List<object> l)
+                    foreach (var o in l)
+                        if (o is Dictionary<string, object> a)
+                            Agents.Add(new AgentInfo { id = a["id"] as string, name = a["name"] as string, installed = a.TryGetValue("installed", out var i) && i is bool b && b });
                 string def = resp.TryGetValue("default", out var d) ? d as string : "";
-                AgentName = string.IsNullOrEmpty(want) ? def : want;
+                AgentName = string.IsNullOrEmpty(Agent) ? def : Agent;
+                Connected = true;
                 Debug.Log("[Harley] Computer bridge OK, agent: " + AgentName);
             }, err => Debug.LogWarning("[Harley] Computer bridge not reachable: " + err));
+            done?.Invoke(Connected);
+        }
+
+        // ---------- pairing (menu > Computer) ----------
+
+        /// <summary>Looks for computers running the bridge on this Wi-Fi (about 2 seconds).</summary>
+        public IEnumerator Discover(List<Found> into)
+        {
+            into.Clear();
+            var found = new List<Found>();
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    using (var udp = new UdpClient())
+                    {
+                        udp.EnableBroadcast = true;
+                        udp.Client.ReceiveTimeout = 400;
+                        var msg = Encoding.ASCII.GetBytes("HARLEY_DISCOVER");
+                        DateTime end = DateTime.UtcNow.AddSeconds(2);
+                        for (int round = 0; DateTime.UtcNow < end; round++)
+                        {
+                            if (round % 3 == 0) udp.Send(msg, msg.Length, new IPEndPoint(IPAddress.Broadcast, 8766));
+                            try
+                            {
+                                var from = new IPEndPoint(IPAddress.Any, 0);
+                                var data = udp.Receive(ref from);
+                                if (MiniJson.Parse(Encoding.UTF8.GetString(data)) is Dictionary<string, object> d && d.ContainsKey("harley_bridge"))
+                                {
+                                    string port = d.TryGetValue("port", out var p) ? Convert.ToString(p) : "8765";
+                                    var f = new Found { name = d["name"] as string, url = "http://" + from.Address + ":" + port, agent = d.TryGetValue("agent", out var ag) ? ag as string : "" };
+                                    lock (found) if (!found.Exists(x => x.url == f.url)) found.Add(f);
+                                }
+                            }
+                            catch (SocketException) { }
+                        }
+                    }
+                }
+                catch (Exception e) { Debug.LogWarning("[Harley] Computer search: " + e.Message); }
+            }) { IsBackground = true };
+            thread.Start();
+            while (thread.IsAlive) yield return null;
+            lock (found) into.AddRange(found);
+        }
+
+        /// <summary>Step 1: the computer shows a 6-digit code.</summary>
+        public IEnumerator PairStart(string url, Action<bool, string> done)
+        {
+            yield return Send("POST", url, "/pair/start", "{}", null, r => done(true, ""), e => done(false, e));
+        }
+
+        /// <summary>Step 2: the code the player typed. On success Harley remembers this computer.</summary>
+        public IEnumerator PairFinish(string url, string code, string name, Action<bool, string> done)
+        {
+            Dictionary<string, object> ok = null; string err = null;
+            yield return Send("POST", url, "/pair/finish", MiniJson.Serialize(new Dictionary<string, object> { { "code", code } }), null, r => ok = r, e => err = e);
+            if (ok == null || !(ok.TryGetValue("token", out var t) && t is string token)) { done(false, err != null && err.Contains("401") ? "wrong code" : err); yield break; }
+            PlayerPrefs.SetString(PrefUrl, url);
+            PlayerPrefs.SetString(PrefToken, token);
+            PlayerPrefs.SetString(PrefName, ok.TryGetValue("name", out var n) ? n as string : (name ?? ""));
+            PlayerPrefs.DeleteKey(PrefAgent);
+            PlayerPrefs.Save();
+            yield return Check(null);
+            done(true, "");
+        }
+
+        public void SetAgent(string id)
+        {
+            PlayerPrefs.SetString(PrefAgent, id ?? "");
+            PlayerPrefs.Save();
+            AgentName = id;
+        }
+
+        public void Disconnect()
+        {
+            // Empty strings so the Unity config can't sneak back in after you unpair
+            PlayerPrefs.SetString(PrefUrl, ""); PlayerPrefs.SetString(PrefToken, "");
+            PlayerPrefs.DeleteKey(PrefAgent); PlayerPrefs.DeleteKey(PrefName);
+            PlayerPrefs.Save();
+            Connected = false; AgentName = ""; Agents.Clear();
         }
 
         /// <summary>Sends a task. Returns false if one is already running or there is no bridge.</summary>
@@ -57,7 +163,7 @@ namespace Harley
             CurrentTask = task;
             string id = null, error = null;
             var body = new Dictionary<string, object> { { "prompt", task } };
-            if (!string.IsNullOrWhiteSpace(Config.computerAgent)) body["agent"] = Config.computerAgent.Trim().ToLowerInvariant();
+            if (!string.IsNullOrEmpty(Agent)) body["agent"] = Agent;
             yield return Send("POST", "/run", MiniJson.Serialize(body), r => id = r.TryGetValue("id", out var v) ? v as string : null, e => error = e);
 
             string status = "error", output = error ?? "no job id";
@@ -85,16 +191,17 @@ namespace Harley
 
         static string Short(string s) => s.Length > 120 ? s.Substring(0, 120) + "..." : s;
 
-        IEnumerator Get(string path, Action<Dictionary<string, object>> ok, Action<string> fail) => Send("GET", path, null, ok, fail);
+        IEnumerator Get(string path, Action<Dictionary<string, object>> ok, Action<string> fail) => Send("GET", Url, path, null, Token, ok, fail);
+        IEnumerator Send(string method, string path, string json, Action<Dictionary<string, object>> ok, Action<string> fail) => Send(method, Url, path, json, Token, ok, fail);
 
-        IEnumerator Send(string method, string path, string json, Action<Dictionary<string, object>> ok, Action<string> fail)
+        IEnumerator Send(string method, string baseUrl, string path, string json, string token, Action<Dictionary<string, object>> ok, Action<string> fail)
         {
-            string url = Config.computerBridgeUrl.Trim().TrimEnd('/') + path;
+            string url = baseUrl.Trim().TrimEnd('/') + path;
             using (var req = new UnityWebRequest(url, method))
             {
                 if (json != null) req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
                 req.downloadHandler = new DownloadHandlerBuffer();
-                req.SetRequestHeader("Authorization", "Bearer " + Config.computerBridgeToken.Trim());
+                if (!string.IsNullOrEmpty(token)) req.SetRequestHeader("Authorization", "Bearer " + token);
                 req.SetRequestHeader("Content-Type", "application/json");
                 req.timeout = 10;
                 yield return req.SendWebRequest();

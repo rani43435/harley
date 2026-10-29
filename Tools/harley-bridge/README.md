@@ -14,9 +14,9 @@ Everyone uses their own account. Harley only gets the bridge address and a token
    - `agent`: `claude`, `codex`, `gemini` or `hermes`
    - `workdir`: the folder the agent may work in (e.g. `~/harley`)
    - `agents.<name>.command`: what each agent may do (Claude's allowed tools are listed there)
-4. Run `python3 harley_bridge.py` and keep the window open. It prints the address.
-5. In Unity, CompanionConfig > Computer: paste the address and the token from `bridge_config.json` yourself.
-   You can also set `Computer Agent` to choose a different agent from Harley.
+4. Run `python3 harley_bridge.py` and keep the window open.
+5. In Harley's menu tap **Computer** > **Search**, pick your computer, and type the 6-digit code it shows.
+   Then **Agent** switches between the agents that computer has. (No Wi-Fi discovery? Use **Type address**.)
 
 ## Safety
 - Every request needs the token. Keep `bridge_config.json` private and never commit it.
