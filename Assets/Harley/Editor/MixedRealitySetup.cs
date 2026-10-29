@@ -139,6 +139,7 @@ namespace Harley.EditorTools
         {
             PlayerSettings.allowUnsafeCode = true;
             PlayerSettings.Android.forceInternetPermission = true;
+            PlayerSettings.insecureHttpOption = InsecureHttpOption.AlwaysAllowed; // the computer bridge on your home network is plain http
             if ((int)PlayerSettings.Android.minSdkVersion < 32) PlayerSettings.Android.minSdkVersion = (AndroidSdkVersions)32;
             PlayerSettings.SetScriptingBackend(UnityEditor.Build.NamedBuildTarget.Android, ScriptingImplementation.IL2CPP);
             PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;

@@ -154,6 +154,7 @@ namespace Harley
             visual?.PopIn();
             sounds?.Play(Sfx.Pop);
             ScheduleProactive();
+            if (!GetComponent<HarleyComputer>()) gameObject.AddComponent<HarleyComputer>().brain = this;
             if (mode != CompanionMode.Window)
             {
                 // Own eyes for objects (YOLO, on the headset) and the language lessons
@@ -342,6 +343,14 @@ namespace Harley
             string t = _pendingLesson; _pendingLesson = null;
             _lastEventCallAt = Time.time;
             Ask(t, false, false);
+        }
+
+        /// <summary>A task on the player's computer finished: always tell them.</summary>
+        public void ComputerFinished(string evt)
+        {
+            visual?.FlashEmotion(Emotion.Excited, 1.5f);
+            sounds?.Play(Sfx.ChirpUp, 1.2f, 0.6f);
+            LessonEvent(evt);
         }
 
         void TryEventCall(string text, float cooldownScale = 1f)
@@ -566,6 +575,12 @@ namespace Harley
                     if (HarleyScreens.Close(r.target) > 0) sounds?.Play(Sfx.ChirpDown, 1.2f, 0.6f);
                 }
             }
+            else if (action == CompanionAction.Computer)
+            {
+                var pc = HarleyComputer.Instance;
+                if (pc != null && pc.Run(r.target)) voice?.ShowStatus("working on your computer...", 6f);
+                else if (pc != null && pc.Busy) voice?.ShowStatus("(still busy with the last computer task)", 4f);
+            }
             else if (action == CompanionAction.StartLesson || action == CompanionAction.NextWord || action == CompanionAction.StopLesson)
             {
                 var lang = HarleyLanguage.Instance;
@@ -703,7 +718,8 @@ namespace Harley
                 ? "You are online. Tools: " + string.Join("; ", toolLines) + ". Use them whenever the answer depends on today, then answer in one or two spoken sentences. Don't read out links."
                 : "You are not connected to live information, so say so if they ask about today's news or weather.";
 
-            string lessonBlock = !window && HarleyLanguage.Instance != null ? HarleyLanguage.Instance.DescribeForPrompt() : "";
+            string lessonBlock = (!window && HarleyLanguage.Instance != null ? HarleyLanguage.Instance.DescribeForPrompt() : "")
+                                 + (HarleyComputer.Instance != null ? HarleyComputer.Instance.DescribeForPrompt() : "");
             return string.Format(world, config.companionName) + internalPocket + screensBlock + lessonBlock + @"
 You are a small, friendly robot about 35 cm tall: a glossy white shell with deep-purple panels, a big round head with two little cat-like ears, a black visor face where your big glowing purple eyes shine, round lights on the sides of your head that glow when you listen and think, a glowing purple core in your chest (your magic pocket), two short arms, and no legs: your body is a rounded pod and you float and fly.
 

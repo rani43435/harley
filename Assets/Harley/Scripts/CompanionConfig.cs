@@ -94,6 +94,15 @@ namespace Harley
         [Tooltip("Live weather from Open-Meteo (free, no key).")]
         public bool weather = true;
 
+        [Header("Computer (your own AI agent on your computer: Tools/harley-bridge)")]
+        [Tooltip("Address the bridge prints, e.g. http://192.168.1.20:8765. Empty = off.")]
+        public string computerBridgeUrl = "";
+        [Tooltip("Token from bridge_config.json on your computer. Never commit this asset.")]
+        public string computerBridgeToken = "";
+        [Tooltip("Which agent to use: claude, codex, gemini, hermes... Empty = the bridge's default.")]
+        public string computerAgent = "";
+        public bool HasComputer => !string.IsNullOrWhiteSpace(computerBridgeUrl) && !string.IsNullOrWhiteSpace(computerBridgeToken);
+
         [Header("Where you live (weather, local news)")]
         [Tooltip("Optional. Empty = Harley guesses your city from your internet connection. City, optionally with region, e.g. \"Münster, Hessen\".")]
         public string homeCity = "";

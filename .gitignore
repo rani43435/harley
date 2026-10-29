@@ -24,3 +24,4 @@ Assets/Harley/CompanionConfig.asset.meta
 .idea/
 .DS_Store
 Assets/Harley/Resources/Vision/yolo.sentis*
+Tools/harley-bridge/bridge_config.json
