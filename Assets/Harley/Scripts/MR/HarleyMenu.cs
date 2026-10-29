@@ -24,7 +24,7 @@ namespace Harley
         protected override void Awake()
         {
             base.Awake();
-            size = new Vector2(0.48f, 0.52f);
+            size = new Vector2(0.48f, 0.465f);
         }
 
         protected override void Start()
@@ -67,20 +67,18 @@ namespace Harley
             var playLabel = Label(c, "Play", 15, muted, TextAlignmentOptions.Left);
             PlaceTL(playLabel.rectTransform, L, y, 100, 20);
             y += 22f;
-            string[] names = { "Add", "Break", "Cover", "Fetch", "Fight" };
-            var toolOf = new[] { HarleyTools.Tool.Add, HarleyTools.Tool.Break, HarleyTools.Tool.Cover, HarleyTools.Tool.Fetch, HarleyTools.Tool.Fight };
-            float bw = (W - 4 * 6f) / 5f;
-            for (int i = 0; i < 5; i++)
+            // Play (hands or controllers): Fetch, Fight, Hide & seek; and bring your windows here
+            string[] names = { "Fetch", "Fight" };
+            var toolOf = new[] { HarleyTools.Tool.Fetch, HarleyTools.Tool.Fight };
+            float bw = (W - 3 * 8f) / 4f;
+            for (int i = 0; i < 2; i++)
             {
                 var tool = toolOf[i];
                 _toolButtons[i] = AddButton(c, names[i], () => PickTool(tool), null, 17);
-                PlaceTL(_toolButtons[i].rect, L + i * (bw + 6f), y, bw, 42);
+                PlaceTL(_toolButtons[i].rect, L + i * (bw + 8f), y, bw, 42);
             }
-            y += 48f;
-            _option = AddButton(c, "Thing: Ball", NextOption, null, 16);
-            PlaceTL(_option.rect, L, y, 140, 36);
-            PlaceTL(AddButton(c, "Clear all", () => HarleyTools.Instance?.ClearAll(), null, 16).rect, L + 148, y, 140, 36);
-            PlaceTL(AddButton(c, "Hide & seek", () => { gameObject.SetActive(false); brain?.PlayHideAndSeek(); }, null, 16).rect, L + 296, y, 140, 36);
+            PlaceTL(AddButton(c, "Hide & seek", () => { gameObject.SetActive(false); brain?.PlayHideAndSeek(); }, null, 16).rect, L + 2 * (bw + 8f), y, bw, 42);
+            PlaceTL(AddButton(c, "Windows here", () => { if (head != null) HarleyWindows.Recenter(head); }, null, 15).rect, L + 3 * (bw + 8f), y, bw, 42);
 
             // Settings
             y += 50f;
@@ -99,11 +97,13 @@ namespace Harley
             PlaceTL(AddButton(c, "Close", () => gameObject.SetActive(false), null, 17).rect, L + 3 * (tw + tg), y, tw, 42);
 
             y += 50f;
-            _computer = AddButton(c, "Computer", () => { gameObject.SetActive(false); ComputerPanel.Show(head); }, null, 17);
-            PlaceTL(_computer.rect, L, y, W, 42);
+            _computer = AddButton(c, "Computer", () => { gameObject.SetActive(false); ComputerPanel.Show(head); }, null, 15);
+            PlaceTL(_computer.rect, L, y, W - (tw + tg), 42);
+            _lang = AddButton(c, "German", () => { HarleyLanguage.Instance?.NextLanguage(); }, null, 16);
+            PlaceTL(_lang.rect, L + W - tw, y, tw, 42);
         }
 
-        PanelButton _computer;
+        PanelButton _computer, _lang;
 
         PanelButton _learn;
 
@@ -114,8 +114,7 @@ namespace Harley
             if (lang == null && brain != null) lang = brain.gameObject.AddComponent<HarleyLanguage>();
             if (lang == null) return;
             lang.MenuPress();
-            if (_learn != null) _learn.label.text = lang.Active ? lang.Language : "Learn";
-            brain?.voice?.ShowStatus(lang.Active ? "(Learn " + lang.Language + ": tap again to switch language, after Turkish it stops)" : "(Lesson over)", 4f);
+            brain?.voice?.ShowStatus(lang.Active ? "(Learning " + lang.Language + ". The button next to Computer changes the language.)" : "(Lesson over)", 4f);
         }
 
         void PickTool(HarleyTools.Tool t)
@@ -232,7 +231,12 @@ namespace Harley
                     : (pc.Connected ? "Computer: " + (string.IsNullOrEmpty(pc.ComputerName) ? "connected" : pc.ComputerName) + " (" + (string.IsNullOrEmpty(pc.AgentName) ? "default" : pc.AgentName) + ")" + (pc.Busy ? " - working..." : "")
                                     : "Computer: not reachable");
             }
-            if (_learn != null && HarleyLanguage.Instance != null) _learn.label.text = HarleyLanguage.Instance.Active ? HarleyLanguage.Instance.Language : "Learn";
+            if (_learn != null && HarleyLanguage.Instance != null)
+            {
+                _learn.label.text = HarleyLanguage.Instance.Active ? "Stop lesson" : "Learn";
+                _learn.baseColor = HarleyLanguage.Instance.Active ? primary : button;
+            }
+            if (_lang != null && HarleyLanguage.Instance != null) _lang.label.text = HarleyLanguage.Instance.Language;
             if (_status == null) return;
             var cfg = brain != null ? brain.config : null;
             var voice = brain != null ? brain.voice : null;
@@ -245,10 +249,42 @@ namespace Harley
             if (_talk != null && _talk.label != null) _talk.label.text = voice != null && voice.IsListening ? "Stop" : "Talk";
             var tools = HarleyTools.Instance;
             for (int i = 0; i < _toolButtons.Length; i++)
-                if (_toolButtons[i] != null) _toolButtons[i].baseColor = tools != null && (int)tools.Current == i + 2 ? primary : button; // buttons: Add, Break, Cover, Fetch, Fight
-            if (_option != null && _option.label != null)
-                _option.label.text = tools != null ? "Thing: " + tools.AddItemName : "Thing";
+                if (_toolButtons[i] != null) _toolButtons[i].baseColor = tools != null && tools.Current == (i == 0 ? HarleyTools.Tool.Fetch : HarleyTools.Tool.Fight) ? primary : button;
             if (_world != null && _world.label != null && HarleyWorld.Instance != null) _world.label.text = "View: " + HarleyWorld.Instance.CurrentLabel;
+        }
+
+        static System.Reflection.MethodInfo _ovrGet;
+        static object _ovrStart;
+        static bool _ovrTried;
+
+        /// <summary>OVRInput Start button: the left controller menu button OR the left-hand menu gesture.</summary>
+        static bool HandMenuGesture()
+        {
+            if (!_ovrTried)
+            {
+                _ovrTried = true;
+                foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    var t = asm.GetType("OVRInput");
+                    if (t == null) continue;
+                    var button = t.GetNestedType("Button");
+                    if (button == null) break;
+                    _ovrStart = System.Enum.Parse(button, "Start");
+                    foreach (var m in t.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+                    {
+                        var ps = m.GetParameters();
+                        if (m.Name == "Get" && ps.Length == 2 && ps[0].ParameterType == button) { _ovrGet = m; break; }
+                    }
+                    break;
+                }
+            }
+            if (_ovrGet == null) return false;
+            try
+            {
+                var ctrl = _ovrGet.GetParameters()[1];
+                return (bool)_ovrGet.Invoke(null, new[] { _ovrStart, ctrl.HasDefaultValue ? ctrl.DefaultValue : System.Enum.Parse(ctrl.ParameterType, "Active") });
+            }
+            catch { return false; }
         }
 
         /// <summary>Left controller menu button toggles the menu (runs on the always-active watcher).</summary>
@@ -257,6 +293,7 @@ namespace Harley
             InputDevice left = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
             bool down = false;
             if (left.isValid) left.TryGetFeatureValue(UnityEngine.XR.CommonUsages.menuButton, out down);
+            down |= HandMenuGesture(); // hands: look at your left palm and pinch (the Meta menu gesture)
             if (down && !_menuWasDown) Toggle();
             _menuWasDown = down;
         }

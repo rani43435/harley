@@ -17,7 +17,8 @@ namespace Harley
         public enum Mode { Room = 0, Blend = 1, World = 2 }
 
         public static HarleyWorld Instance { get; private set; }
-        public static bool Immersive => Instance != null && Instance.Current == Mode.World;
+        public static bool Immersive => Instance != null && Instance.Current != Mode.Room; // a 360 view or Harley's world: the real room is hidden
+        public static bool InHarleysWorld => Instance != null && Instance.Current == Mode.World;
         public static bool Blended => Instance != null && Instance.Current == Mode.Blend;
         public Mode Current { get; private set; } = Mode.Room;
 
@@ -98,11 +99,11 @@ namespace Harley
             {
                 if (Current != Mode.Blend) return Label(Current);
                 LoadViews();
-                return _views.Count > 0 ? "Room + " + _views[ViewIndex].name : "Room + world";
+                return _views.Count > 0 ? _views[ViewIndex].name : "360 view";
             }
         }
 
-        /// <summary>My room -> Room + each view -> Harley's world -> My room.</summary>
+        /// <summary>My room -> each 360 view (fully virtual) -> Harley's world -> My room.</summary>
         public void Toggle()
         {
             LoadViews();
@@ -132,6 +133,7 @@ namespace Harley
                 r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             }
             _panoMat.SetTexture("_MainTex", _views[ViewIndex].tex);
+            if (_panoMat.HasProperty("_StencilComp")) _panoMat.SetFloat("_StencilComp", 8f); // everywhere: fully virtual
             _panoMat.SetFloat("_Exposure", _views[ViewIndex].name == "City night" ? 1.1f : 1f);
             _pano.SetActive(true);
         }
@@ -144,7 +146,7 @@ namespace Harley
 
         public void SetImmersive(bool on) => SetMode(on ? Mode.World : Mode.Room);
 
-        public static string Label(Mode m) => m == Mode.Room ? "My room" : m == Mode.Blend ? "Room + world" : "Harley's world";
+        public static string Label(Mode m) => m == Mode.Room ? "My room" : m == Mode.Blend ? "360 view" : "Harley's world";
 
         public void SetMode(Mode m)
         {
@@ -155,12 +157,12 @@ namespace Harley
 
             if (_cam == null) { _cam = Camera.main; if (_cam) { _clearFlags = _cam.clearFlags; _clearColor = _cam.backgroundColor; } }
 
-            // Passthrough: on in the room and in the blend, off in the full world (saves battery too)
+            // Passthrough only in your room; the 360 views and Harley's world are fully virtual (saves battery too)
             if (_passthrough.Count == 0)
                 foreach (var mb in FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Include))
                     if (mb != null && mb.GetType().Name == "OVRPassthroughLayer") _passthrough.Add(mb);
-            foreach (var pt in _passthrough) if (pt) pt.enabled = m != Mode.World;
-            SuppressBoundary(m != Mode.World);
+            foreach (var pt in _passthrough) if (pt) pt.enabled = m == Mode.Room;
+            SuppressBoundary(m == Mode.Room); // in virtual views the boundary keeps you safe
 
             LoadViews();
             bool panoBlend = m == Mode.Blend && _views.Count > 0;
@@ -169,7 +171,7 @@ namespace Harley
             ShowView();
             if (_cam)
             {
-                if (m == Mode.World) { _cam.clearFlags = CameraClearFlags.SolidColor; _cam.backgroundColor = new Color(0.08f, 0.06f, 0.2f, 1f); }
+                if (m != Mode.Room) { _cam.clearFlags = CameraClearFlags.SolidColor; _cam.backgroundColor = new Color(0.08f, 0.06f, 0.2f, 1f); }
                 else { _cam.clearFlags = _clearFlags; _cam.backgroundColor = _clearColor; }
             }
             if (m != Mode.Room)
@@ -183,7 +185,7 @@ namespace Harley
         void Update()
         {
             // The room scan can arrive late or change: keep the wall portals in step with it
-            if (Current == Mode.Blend && Time.unscaledTime >= _nextWindowsRefresh)
+            if (false && Current == Mode.Blend && Time.unscaledTime >= _nextWindowsRefresh)
             {
                 _nextWindowsRefresh = Time.unscaledTime + 3f;
                 int walls = room != null ? room.Walls.Count : 0;
@@ -205,7 +207,7 @@ namespace Harley
         {
             if (_windows) Destroy(_windows);
             _windows = null;
-            bool blend = Current == Mode.Blend;
+            bool blend = false; // the wall-portal blend is retired: views are fully virtual now
             ApplyStencil(blend);
             if (!blend) { ShowInsideRoom(true); return; }
 

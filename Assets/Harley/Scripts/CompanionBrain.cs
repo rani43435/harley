@@ -661,9 +661,8 @@ namespace Harley
             }
 
             if (!window && HarleyWorld.Blended)
-                sight += " Right now their real room is blended with your virtual world: the floor and furniture are real, but the walls and ceiling " +
-                         "open onto your dusk island with a lake, lilac trees, glowing crystals, floating lanterns and stars.";
-            if (!window && HarleyWorld.Immersive)
+                sight += " Right now the player switched to a virtual 360 view (" + HarleyWorld.Instance.CurrentLabel + "): you both are there and their real room is hidden. You can talk about the place.";
+            if (!window && HarleyWorld.InHarleysWorld)
                 sight += " Right now the player switched to your own virtual world: a quiet dusk island with a lake, lilac trees, glowing crystals, " +
                          "floating lanterns and stars. You both are there (their real room is hidden). You can talk about it like your home.";
 

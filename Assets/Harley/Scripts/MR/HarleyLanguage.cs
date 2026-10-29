@@ -38,13 +38,19 @@ namespace Harley
 
         public string Label => Active ? "Learn: " + Language : "Learn";
 
-        /// <summary>Menu button: off -> on (last language); while on, it cycles languages; after the last, off.</summary>
+        /// <summary>Menu "Learn" button: starts / stops the lesson.</summary>
         public void MenuPress()
         {
-            if (!Active) { Begin(Language); return; }
+            if (Active) End(); else Begin(Language);
+        }
+
+        /// <summary>Menu language button: the next language, round and round (switches a running lesson too).</summary>
+        public void NextLanguage()
+        {
             int i = System.Array.IndexOf(Languages, Language);
-            if (i + 1 >= Languages.Length) { End(); return; }
-            Begin(Languages[i + 1]);
+            string next = Languages[(i + 1 + Languages.Length) % Languages.Length];
+            if (Active) Begin(next);
+            else { Language = next; PlayerPrefs.SetString("harley.learn.lang", Language); }
         }
 
         public void Begin(string language)
@@ -63,7 +69,9 @@ namespace Harley
             bool was = Active;
             Active = true;
             ClearQuestion();
-            if (!was) brain?.LessonEvent($"The player started a {Language} lesson with you. Say hi as their {Language} teacher in one short, fun sentence; you'll fly to things in their room and ask what they're called.");
+            if (was && _current != null) { _current = null; CurrentThing = ""; _nextAt = Time.time + 3.5f; }
+            if (was) brain?.LessonEvent($"The player switched the lesson to {Language}. Say so in one short, fun sentence.");
+            else brain?.LessonEvent($"The player started a {Language} lesson with you. Say hi as their {Language} teacher in one short, fun sentence; you'll fly to things in their room and ask what they're called.");
             _nextAt = Time.time + 3.5f;
         }
 

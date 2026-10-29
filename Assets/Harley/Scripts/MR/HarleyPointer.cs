@@ -254,8 +254,9 @@ namespace Harley
                 if (!Bool(_pointerValid, s.hand)) return false;
                 var pose = _pointerPose?.GetValue(s.hand) as Transform;
                 if (pose == null) return false;
-                origin = pose.position;
-                dir = pose.forward;
+                dir = pose.forward; // steady direction (from the shoulder), so pinching doesn't shake the ray
+                // ...but the ray comes out of your index finger
+                origin = s.indexTip != null && s.indexTip.gameObject.activeInHierarchy ? s.indexTip.position : pose.position;
                 float pinch = 0f;
                 try { pinch = (float)_pinchStrength.Invoke(s.hand, new[] { _indexFinger }); } catch { }
                 pressed = s.pressed ? pinch > 0.6f : pinch > 0.85f;
@@ -355,7 +356,7 @@ namespace Harley
         {
             Color c = pressed ? pressColor : rayColor;
             s.line.enabled = true;
-            s.line.SetPosition(0, from + (to - from).normalized * 0.03f);
+            s.line.SetPosition(0, from + (to - from).normalized * 0.004f);
             s.line.SetPosition(1, to);
             s.line.startColor = new Color(c.r, c.g, c.b, 0.05f);
             s.line.endColor = c;
@@ -368,7 +369,7 @@ namespace Harley
         {
             Vector3 to = from + dir * 0.6f;
             s.line.enabled = true;
-            s.line.SetPosition(0, from + dir * 0.03f);
+            s.line.SetPosition(0, from + dir * 0.004f);
             s.line.SetPosition(1, to);
             Color c = pressed ? pressColor : FreeRayColor;
             s.line.startColor = new Color(c.r, c.g, c.b, 0.0f);
