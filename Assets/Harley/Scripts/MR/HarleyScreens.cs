@@ -110,6 +110,7 @@ namespace Harley
             if (Words(name, "سبوتيفاي", "سبوتي")) return Get("Spotify");
             if (Words(name, "نتفلكس", "نتفليكس")) return Get("Netflix");
             if (Words(name, "واتساب", "واتس")) return Get("WhatsApp");
+            if (Words(name, "map", "خرائط", "خريطة", "ماب", "karte")) return Get("Maps");
             if (Words(name, "جوجل", "غوغل", "google")) return Get("Google");
             if (Words(name, "hbo", "اتش بي او")) return Get("HBO Max");
             if (Words(name, "كلاود", "claude")) return Get("Claude");
@@ -125,6 +126,7 @@ namespace Harley
             {
                 case "YouTube": return "https://www.youtube.com/tv#/search?q=" + e;
                 case "Google": return "https://www.google.com/search?q=" + e;
+                case "Maps": return "https://www.google.com/maps/search/" + e;
                 case "Spotify": return "https://open.spotify.com/search/" + e;
                 case "Twitch": return "https://m.twitch.tv/search?term=" + e;
                 case "Instagram": return "https://www.instagram.com/explore/search/keyword/?q=" + e;
