@@ -14,6 +14,10 @@ namespace Harley
         [Tooltip("Which AI is Harley's brain. Gemini has a free tier (aistudio.google.com); Claude needs paid API credits.")]
         public AiProvider provider = AiProvider.Claude;
 
+        [Header("Look")]
+        [Tooltip("Cat-eared robot: the original gold trim instead of Harley purple.")]
+        public bool goldTrim = false;
+
         [Header("Groq (free, fast, big limits: console.groq.com > API Keys)")]
         [Tooltip("With a Groq key Harley thinks with Groq (fast, ~1000 a day), hears with Whisper and speaks with Orpheus. Gemini is still used to look at things.")]
         public string groqApiKey = "";

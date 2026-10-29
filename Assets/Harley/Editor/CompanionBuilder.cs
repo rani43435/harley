@@ -19,6 +19,8 @@ namespace Harley.EditorTools
         const string MatDir = RootDir + "/Materials";
         const string ConfigPath = RootDir + "/CompanionConfig.asset";
         const string ModelPath = RootDir + "/Models/Harley.fbx";
+        // The cat-eared robot (from Rani's own model): used when it's there
+        const string CuteModelPath = RootDir + "/Models/CuteHarley.fbx";
 
         static readonly Color White = new Color(0.957f, 0.945f, 1f);     // #F4F1FF
         static readonly Color Purple = new Color(0.357f, 0.129f, 0.714f); // #5B21B6 deep royal purple
@@ -260,7 +262,7 @@ namespace Harley.EditorTools
             squash.SetParent(visualGO.transform, false);
 
             GameObject eyeL, eyeR, mouth, cheekL, cheekR, handL, handR;
-            var model = robot ? AssetDatabase.LoadAssetAtPath<GameObject>(ModelPath) : null;
+            var model = robot ? (AssetDatabase.LoadAssetAtPath<GameObject>(CuteModelPath) ?? AssetDatabase.LoadAssetAtPath<GameObject>(ModelPath)) : null;
             if (model != null)
             {
                 BuildFromModel(p, model, visualGO.transform, squash, white, purple, cheek,
@@ -364,6 +366,7 @@ namespace Harley.EditorTools
             v.handL = handL.transform;
             v.handR = handR.transform;
             v.halo = halo;
+            if (v.statusLights != null && v.statusLights.Length > 0) { Object.DestroyImmediate(haloGO); v.halo = null; } // the side lights do its job
             v.trail = trail;
             v.sparkles = sparkles;
             v.glowRenderers = new Renderer[] { eyeL.GetComponent<Renderer>(), eyeR.GetComponent<Renderer>(), mouth.GetComponent<Renderer>() };
@@ -400,7 +403,8 @@ namespace Harley.EditorTools
             Material shine = UnlitMaterial("Harley_ShineUnlit", Color.white);
             // Glowing parts are unlit: they look lit up on every device, no emission keyword needed (it got stripped on Quest)
             Material glow = UnlitMaterial("Harley_GlowUnlit", Purple);
-            var glowParts = new HashSet<string> { "EyeL", "EyeR", "Mouth", "Core", "HoverGlow", "HoverRing", "Seam" };
+            var glowParts = new HashSet<string> { "EyeL", "EyeR", "Mouth", "Core", "HoverGlow", "HoverRing", "Seam", "EarLightL", "EarLightR" };
+            Material cuteBody = null;
             foreach (var r in inst.GetComponentsInChildren<Renderer>(true))
             {
                 var mats = r.sharedMaterials;
@@ -408,7 +412,8 @@ namespace Harley.EditorTools
                 for (int i = 0; i < mats.Length; i++)
                 {
                     string n = mats[i] != null ? mats[i].name : "";
-                    mats[i] = n.Contains("Purple") ? (isGlow ? glow : purple) : n.Contains("Cheek") ? cheek : n.Contains("Joint") ? joint : n.Contains("Highlight") ? shine : white;
+                    if (n.Contains("CuteHarley") || n.Contains("tripo")) { mats[i] = cuteBody ??= CuteBodyMaterial(); continue; }
+                    mats[i] = isGlow ? glow : n.Contains("Purple") ? purple : n.Contains("Cheek") ? cheek : n.Contains("Joint") ? joint : n.Contains("Highlight") ? shine : white;
                 }
                 r.sharedMaterials = mats;
                 r.shadowCastingMode = ShadowCastingMode.Off;
@@ -417,8 +422,8 @@ namespace Harley.EditorTools
             foreach (var c in inst.GetComponentsInChildren<Collider>(true)) Object.DestroyImmediate(c);
 
             // Face parts animate with the squash root (find them all first: some are children of the head)
-            Transform mo = Find("Mouth"), cL = Find("CheekL"), cR = Find("CheekR");
-            var face = new[] { head, eL, eR, mo, cL, cR };
+            Transform mo = Find("Mouth"), cL = Find("CheekL"), cR = Find("CheekR"), earL = Find("EarLightL"), earR = Find("EarLightR");
+            var face = new[] { head, eL, eR, mo, cL, cR, earL, earR };
             foreach (var f in face)
             {
                 if (f == null) continue;
@@ -484,6 +489,30 @@ namespace Harley.EditorTools
             var glows = new System.Collections.Generic.List<Renderer>();
             foreach (string n in new[] { "HoverRing", "HoverGlow" }) { var t = Find(n); if (t && t.GetComponent<Renderer>()) glows.Add(t.GetComponent<Renderer>()); }
             rig.hoverGlow = glows.ToArray();
+
+            // Lights on the sides of the head show listening / thinking (instead of the halo)
+            var lights = new System.Collections.Generic.List<Renderer>();
+            foreach (var t in new[] { earL, earR }) if (t && t.GetComponent<Renderer>()) lights.Add(t.GetComponent<Renderer>());
+            p.visual.statusLights = lights.ToArray();
+            // Skin: Harley purple, or the original gold (config)
+            var skins = new System.Collections.Generic.List<Renderer>();
+            foreach (var r in inst.GetComponentsInChildren<Renderer>(true)) if (r.sharedMaterial == cuteBody && cuteBody != null) skins.Add(r);
+            foreach (var r in squash.GetComponentsInChildren<Renderer>(true)) if (r.sharedMaterial == cuteBody && cuteBody != null && !skins.Contains(r)) skins.Add(r);
+            rig.skins = skins.ToArray();
+        }
+
+        /// <summary>The cat-eared robot's skin: its painted texture (purple version) and normal map, glossy like plastic.</summary>
+        static Material CuteBodyMaterial()
+        {
+            var m = LitMaterial("Harley_CuteBody", Color.white, 0f, 0.72f);
+            var baseTex = AssetDatabase.LoadAssetAtPath<Texture2D>(RootDir + "/Resources/CuteHarley/basecolor_purple.jpg");
+            var normal = AssetDatabase.LoadAssetAtPath<Texture2D>(RootDir + "/Resources/CuteHarley/normal.png");
+            if (baseTex && m.HasProperty("_BaseMap")) m.SetTexture("_BaseMap", baseTex);
+            if (baseTex) m.mainTexture = baseTex;
+            if (normal && m.HasProperty("_BumpMap")) { m.SetTexture("_BumpMap", normal); m.EnableKeyword("_NORMALMAP"); m.SetKeyword(new UnityEngine.Rendering.LocalKeyword(m.shader, "_NORMALMAP"), true); }
+            if (m.HasProperty("_Metallic")) m.SetFloat("_Metallic", 0f);
+            EditorUtility.SetDirty(m);
+            return m;
         }
 
         /// <summary>

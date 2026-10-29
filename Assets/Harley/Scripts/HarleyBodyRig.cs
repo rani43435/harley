@@ -26,6 +26,9 @@ namespace Harley
         public Arm left = new Arm(), right = new Arm();
         public Renderer core;
         public Renderer[] hoverGlow;
+        [Tooltip("The painted skin (cat-eared robot): purple, or the original gold when the config says so.")]
+        public Renderer[] skins;
+        bool _goldApplied;
 
         MaterialPropertyBlock _mpb;
         static readonly int EmissionId = Shader.PropertyToID("_EmissionColor");
@@ -48,6 +51,27 @@ namespace Harley
             a.restDirLocal = a.arm.parent.InverseTransformDirection(a.target.position - a.arm.position).normalized;
             a.restRotLocal = a.arm.localRotation;
             a.ready = true;
+        }
+
+        void Start() => ApplySkin();
+
+        /// <summary>Harley purple or the original gold trim (CompanionConfig > Gold Trim).</summary>
+        public void ApplySkin()
+        {
+            if (skins == null || skins.Length == 0) return;
+            var brain = GetComponentInParent<CompanionBrain>();
+            bool gold = brain != null && brain.config != null && brain.config.goldTrim;
+            if (gold == _goldApplied) return;
+            _goldApplied = gold;
+            var tex = gold ? Resources.Load<Texture2D>("CuteHarley/basecolor_gold") : null;
+            foreach (var r in skins)
+            {
+                if (!r) continue;
+                r.GetPropertyBlock(_mpb);
+                if (tex != null) { _mpb.SetTexture("_BaseMap", tex); _mpb.SetTexture("_MainTex", tex); }
+                else _mpb.Clear();
+                r.SetPropertyBlock(_mpb);
+            }
         }
 
         void LateUpdate()

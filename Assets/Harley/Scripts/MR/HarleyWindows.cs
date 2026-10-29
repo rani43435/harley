@@ -239,3 +239,35 @@ namespace Harley
         }
     }
 }
+
+namespace Harley
+{
+    /// <summary>
+    /// B on the right controller (or Y on the left) = "Here": all your windows and the dock come to where you
+    /// are and look now. Handy after walking to another spot in the room.
+    /// </summary>
+    public class HarleyHereButton : MonoBehaviour
+    {
+        bool _was;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+        static void Install()
+        {
+            var go = new GameObject("Harley Here Button");
+            DontDestroyOnLoad(go);
+            go.AddComponent<HarleyHereButton>();
+        }
+
+        void Update()
+        {
+            bool down = false;
+            var right = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(UnityEngine.XR.XRNode.RightHand);
+            var left = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(UnityEngine.XR.XRNode.LeftHand);
+            if (right.isValid && right.TryGetFeatureValue(UnityEngine.XR.CommonUsages.secondaryButton, out bool b) && b) down = true;
+            if (left.isValid && left.TryGetFeatureValue(UnityEngine.XR.CommonUsages.secondaryButton, out bool y) && y) down = true;
+            if (down && !_was && WebPanel.Windows.Count > 0 && Camera.main != null)
+                HarleyWindows.Recenter(Camera.main.transform);
+            _was = down;
+        }
+    }
+}

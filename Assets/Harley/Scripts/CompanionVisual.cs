@@ -18,6 +18,8 @@ namespace Harley
         public Renderer cheekL, cheekR;
         public Transform handL, handR;
         public LineRenderer halo;
+        [Tooltip("Lights that show listening / thinking instead of the halo (the cat-eared robot's head lights).")]
+        public Renderer[] statusLights;
         public TrailRenderer trail;
         public ParticleSystem sparkles;
         public Renderer[] glowRenderers; // eyes + mouth: tinted by emotion
@@ -387,6 +389,7 @@ namespace Harley
 
         void UpdateHalo(float t, float dt, float talk)
         {
+            if (statusLights != null && statusLights.Length > 0) UpdateStatusLights(t, talk);
             if (!halo) return;
             float speed = _thinking ? 360f : _listening ? 120f : 30f;
             _haloSpin += speed * dt;
@@ -402,6 +405,28 @@ namespace Harley
             c.a = alpha;
             halo.startColor = c;
             halo.endColor = end;
+        }
+
+        /// <summary>Listening: a slow bright pulse. Thinking: quick twinkle, one side then the other. Talking: follows the voice. Otherwise a soft glow.</summary>
+        void UpdateStatusLights(float t, float talk)
+        {
+            if (_mpb == null) _mpb = new MaterialPropertyBlock();
+            for (int i = 0; i < statusLights.Length; i++)
+            {
+                var r = statusLights[i];
+                if (!r) continue;
+                float k;
+                if (_thinking) k = 0.55f + 0.45f * Mathf.Max(0f, Mathf.Sin(t * 12f + i * Mathf.PI));
+                else if (_listening) k = 0.75f + 0.25f * Mathf.Sin(t * 5f);
+                else if (talk > 0.05f) k = 0.6f + talk * 0.4f;
+                else k = Asleep ? 0.15f : 0.4f;
+                Color c = Color.Lerp(purple * 0.35f, Color.Lerp(purple, lavender, 0.55f), k);
+                c.a = 1f;
+                r.GetPropertyBlock(_mpb);
+                _mpb.SetColor(BaseColorId, c);
+                _mpb.SetColor(ColorId, c);
+                r.SetPropertyBlock(_mpb);
+            }
         }
 
         void ApplyGlow(Color c, float intensity)

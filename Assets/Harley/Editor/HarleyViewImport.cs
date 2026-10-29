@@ -8,6 +8,16 @@ namespace Harley.EditorTools
     {
         void OnPreprocessTexture()
         {
+            string path = assetPath.Replace('\\', '/');
+            if (path.Contains("/Harley/Resources/CuteHarley/"))
+            {
+                var t = (TextureImporter)assetImporter;
+                t.maxTextureSize = 2048;
+                t.mipmapEnabled = true;
+                t.anisoLevel = 4;
+                if (path.EndsWith("normal.png")) t.textureType = TextureImporterType.NormalMap;
+                return;
+            }
             if (!assetPath.Replace('\\', '/').Contains("/Harley/Resources/Views/")) return;
             var ti = (TextureImporter)assetImporter;
             ti.textureType = TextureImporterType.Default;
