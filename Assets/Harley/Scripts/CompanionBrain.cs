@@ -154,6 +154,12 @@ namespace Harley
             visual?.PopIn();
             sounds?.Play(Sfx.Pop);
             ScheduleProactive();
+            if (mode != CompanionMode.Window)
+            {
+                // Own eyes for objects (YOLO, on the headset) and the language lessons
+                if (!FindAnyObjectByType<HarleyObjectSight>()) new GameObject("Harley Object Sight").AddComponent<HarleyObjectSight>();
+                if (!GetComponent<HarleyLanguage>()) gameObject.AddComponent<HarleyLanguage>().brain = this;
+            }
             if (greetOnStart)
             {
                 yield return new WaitForSeconds(2.5f); // camera warm-up, room scan load
@@ -189,14 +195,18 @@ namespace Harley
 
             // Doze off when ignored (in the window app only when it can't watch your screen)
             bool canWatch = (mode == CompanionMode.Window || WebPanel.Windows.Count > 0) && eyes != null && eyes.CanSee;
-            if (!_asleep && !canWatch && interaction && interaction.IdleSeconds > sleepAfterSeconds && !_requestRunning && voice && !voice.IsSpeaking && !voice.IsListening)
+            if (!_asleep && !canWatch && !(HarleyLanguage.Instance != null && HarleyLanguage.Instance.Active) && interaction && interaction.IdleSeconds > sleepAfterSeconds && !_requestRunning && voice && !voice.IsSpeaking && !voice.IsListening)
             {
                 FallAsleep();
                 voice?.ShowStatus("z z z", 4f);
             }
 
-            // Say something on its own now and then
-            if (config.proactiveComments && Time.time >= _nextProactiveAt)
+            PumpLesson();
+
+            // Say something on its own now and then (not during a language lesson)
+            bool lesson = HarleyLanguage.Instance != null && HarleyLanguage.Instance.Active;
+            if (lesson && Time.time >= _nextProactiveAt) ScheduleProactive();
+            if (config.proactiveComments && !lesson && Time.time >= _nextProactiveAt)
             {
                 ScheduleProactive();
                 bool quiet = !_requestRunning && voice && !voice.IsSpeaking && !voice.IsListening
@@ -314,6 +324,24 @@ namespace Harley
             interaction?.MarkActivity();
             visual?.FlashEmotion(flash, 2f);
             TryEventCall("[event] " + evt, 0.6f);
+        }
+
+        string _pendingLesson;
+
+        /// <summary>Language lesson steps: always answered (waits for a free moment, no cooldown).</summary>
+        public void LessonEvent(string text)
+        {
+            WakeUp();
+            interaction?.MarkActivity();
+            _pendingLesson = text.StartsWith("[") ? text : "[event] " + text;
+        }
+
+        void PumpLesson()
+        {
+            if (_pendingLesson == null || _requestRunning || (voice && (voice.IsSpeaking || voice.IsListening))) return;
+            string t = _pendingLesson; _pendingLesson = null;
+            _lastEventCallAt = Time.time;
+            Ask(t, false, false);
         }
 
         void TryEventCall(string text, float cooldownScale = 1f)
@@ -514,6 +542,8 @@ namespace Harley
             {
                 Vector3 near = movement != null && movement.head != null ? movement.head.position : transform.position;
                 if (room != null && room.TryFind(r.target, near, out var thing)) movement?.Perform(CompanionAction.GoTo, thing);
+                else if (HarleyObjectSight.Instance != null && HarleyObjectSight.Instance.TryFind(r.target, near, out var seen) && movement is CompanionMovement cm)
+                    cm.FlyTo(seen.position + Vector3.up * 0.18f, 6f, seen.position); // something Harley spotted with her own eyes
                 else movement?.Perform(CompanionAction.LookAtThing);
             }
             else if (action == CompanionAction.OpenApp || action == CompanionAction.CloseApp)
@@ -534,6 +564,16 @@ namespace Harley
                 else
                 {
                     if (HarleyScreens.Close(r.target) > 0) sounds?.Play(Sfx.ChirpDown, 1.2f, 0.6f);
+                }
+            }
+            else if (action == CompanionAction.StartLesson || action == CompanionAction.NextWord || action == CompanionAction.StopLesson)
+            {
+                var lang = HarleyLanguage.Instance;
+                if (lang != null)
+                {
+                    if (action == CompanionAction.StartLesson) lang.Begin(r.target);
+                    else if (action == CompanionAction.NextWord) { lang.Answered(r.target); visual?.Burst(10, visual.lavender); sounds?.Play(Sfx.ChirpUp, 1.3f, 0.6f); }
+                    else lang.End(quiet: true);
                 }
             }
             else if (action == CompanionAction.Sleep)
@@ -630,6 +670,10 @@ namespace Harley
                     ? "Things in the player's room, from the headset's room scan (distance and direction from the player):\n" + roomList +
                       "To fly over to one of them, use action go_to with target set to its exact name from this list.\n"
                     : "You don't have a room scan right now, so go_to is not available. Use look_at_thing to fly to what the player is looking at.\n";
+                string seenList = HarleyObjectSight.Instance != null && head != null ? HarleyObjectSight.Instance.DescribeForPrompt(head) : "";
+                if (seenList.Length > 0)
+                    roomBlock += "Things your own eyes spotted around the room lately (real objects, from the headset camera):\n" + seenList +
+                                 "You can go_to these too (target = the object's name, like 'cup'), mention them naturally, or ask about them.\n";
                 if (movement != null && !string.IsNullOrEmpty(movement.CurrentPlace)) place = $"You are currently at the {movement.CurrentPlace}.\n";
                 actions =
                     "Actions: stay (hover where you are), follow (float beside the player, the default), come_close (come right up to their face), " +
@@ -638,6 +682,7 @@ namespace Harley
                     "celebrate (arms up, spin and sparkles: for good news or a win), sleep (settle down on furniture and take a nap; any touch or word wakes you), " +
                     "open_app (open a screen for the player: target = an app name like YouTube, or 'App: what to search' like 'YouTube: lofi jazz' or 'Google: weather tomorrow', or a website address like wikipedia.org), " +
                     "close_app (target = the app to close, or 'all'), " +
+                    "start_lesson (the player wants to practise or learn a language with things in their room: target = the language in English, like German), " +
                     "hide_and_seek (when the player wants to play hide and seek, or you invite them and they agree: say something like 'close your eyes and count to ten!' and you fly off to hide behind furniture; the game tells you when they find you).";
             }
 
@@ -658,7 +703,8 @@ namespace Harley
                 ? "You are online. Tools: " + string.Join("; ", toolLines) + ". Use them whenever the answer depends on today, then answer in one or two spoken sentences. Don't read out links."
                 : "You are not connected to live information, so say so if they ask about today's news or weather.";
 
-            return string.Format(world, config.companionName) + internalPocket + screensBlock + @"
+            string lessonBlock = !window && HarleyLanguage.Instance != null ? HarleyLanguage.Instance.DescribeForPrompt() : "";
+            return string.Format(world, config.companionName) + internalPocket + screensBlock + lessonBlock + @"
 You are a small, friendly robot about 35 cm tall: a glossy white shell with deep-purple panels, a big round head with two little cat-like ears, a black visor face where your big glowing purple eyes shine, round lights on the sides of your head that glow when you listen and think, a glowing purple core in your chest (your magic pocket), two short arms, and no legs: your body is a rounded pod and you float and fly.
 
 Personality: " + config.personality + @"

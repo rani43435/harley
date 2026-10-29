@@ -6,7 +6,7 @@ namespace Harley
 {
     public enum Emotion { Neutral, Happy, Excited, Curious, Surprised, Sad, Sleepy, Love }
 
-    public enum CompanionAction { Stay, Follow, ComeClose, Wander, LookAtThing, Sit, Hide, Spin, Dance, Wave, GoTo, Give, TakeBack, HideAndSeek, Sleep, Celebrate, OpenApp, CloseApp }
+    public enum CompanionAction { Stay, Follow, ComeClose, Wander, LookAtThing, Sit, Hide, Spin, Dance, Wave, GoTo, Give, TakeBack, HideAndSeek, Sleep, Celebrate, OpenApp, CloseApp, NextWord, StopLesson, StartLesson }
 
     /// <summary>What Claude sends back every time (matches the JSON schema in ClaudeClient).</summary>
     [Serializable]
@@ -58,6 +58,9 @@ namespace Harley
                 case "celebrate": return CompanionAction.Celebrate;
                 case "open_app": return CompanionAction.OpenApp;
                 case "close_app": return CompanionAction.CloseApp;
+                case "next_word": return CompanionAction.NextWord;
+                case "stop_lesson": return CompanionAction.StopLesson;
+                case "start_lesson": return CompanionAction.StartLesson;
                 default: return CompanionAction.Stay;
             }
         }

@@ -1,0 +1,3 @@
+yolo.sentis and classes.txt come from Meta's Spatial Lingo sample
+(https://github.com/oculus-samples/Unity-SpatialLingo), MIT license.
+yolo.sentis is not in git (large file); the Mac setup downloads it.

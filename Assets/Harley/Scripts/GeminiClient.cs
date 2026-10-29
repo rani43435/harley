@@ -23,7 +23,7 @@ namespace Harley
         const string JsonRule =
             "\n\nAnswer with ONLY one JSON object, no markdown, exactly these keys: " +
             "{\"say\": string, \"emotion\": one of neutral|happy|excited|curious|surprised|sad|sleepy|love, " +
-            "\"action\": one of stay|follow|come_close|wander|look_at_thing|sit|hide|spin|dance|wave|go_to|give|take_back|hide_and_seek|sleep|celebrate|open_app|close_app, " +
+            "\"action\": one of stay|follow|come_close|wander|look_at_thing|sit|hide|spin|dance|wave|go_to|give|take_back|hide_and_seek|sleep|celebrate|open_app|close_app|start_lesson|next_word|stop_lesson, " +
             "\"target\": string, \"remember\": string, \"forget\": boolean}";
 
         public static IEnumerator Send(CompanionConfig config, string system, List<ChatTurn> turns, CompanionTools tools,
@@ -121,6 +121,29 @@ namespace Harley
                 yield break;
             }
             onError?.Invoke("Too many tool rounds.");
+        }
+
+        /// <summary>
+        /// Harley's eyes only: describes the picture for the question (2-4 factual sentences, reads visible text).
+        /// The answer itself then comes from the fast brain (Groq), so Harley sounds the same whether she looks or not.
+        /// </summary>
+        public static IEnumerator Describe(CompanionConfig config, string jpegBase64, string question, Action<string> done)
+        {
+            var body = MiniJson.Obj(
+                "contents", new List<object> { MiniJson.Obj("role", "user", "parts", new List<object> {
+                    MiniJson.Obj("inline_data", MiniJson.Obj("mime_type", "image/jpeg", "data", jpegBase64)),
+                    MiniJson.Obj("text", "This is what a person sees right now (their room through a headset, or a screen they're looking at). " +
+                        "They said: \"" + question + "\"\nDescribe what's relevant in 2-4 short factual sentences: the main things, colours, and any readable text " +
+                        "(titles, names, numbers). No greetings, no advice, just what is visible.") }) },
+                "generationConfig", MiniJson.Obj("maxOutputTokens", 700, "temperature", 0.2));
+            Dictionary<string, object> resp = null;
+            string error = null;
+            yield return Generate(config, MiniJson.Serialize(body), r => resp = r, e => error = e, ImageTimeout);
+            if (error != null) { done?.Invoke(null); yield break; }
+            var sb = new StringBuilder();
+            foreach (var p in First(resp.ListAt("candidates")).ObjAt("content")?.ListAt("parts") ?? new List<object>())
+                if (p is Dictionary<string, object> part && part.Str("text") is string t && !(part.TryGetValue("thought", out var th) && th is bool b && b)) sb.Append(t);
+            done?.Invoke(sb.Length > 0 ? sb.ToString().Trim() : null);
         }
 
         /// <summary>Web search with Gemini's built-in Google Search grounding.</summary>

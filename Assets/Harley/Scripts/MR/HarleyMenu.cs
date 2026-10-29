@@ -92,9 +92,24 @@ namespace Harley
             PlaceTL(AddToggle(c, "Hi Harley", Pref(PrefWake, cfg == null || cfg.wakeWord), v => { Save(PrefWake, v); if (cfg) cfg.wakeWord = v; }).rect, L + 3 * (tw + tg), y, tw, 42);
 
             y += 50f;
-            PlaceTL(AddButton(c, "Come here", () => brain?.movement?.Perform(CompanionAction.ComeClose), null, 18).rect, L, y, 140, 42);
-            PlaceTL(AddButton(c, "Forget me", ForgetMe, null, 18).rect, L + 148, y, 140, 42);
-            PlaceTL(AddButton(c, "Close", () => gameObject.SetActive(false), null, 18).rect, L + 296, y, 140, 42);
+            PlaceTL(AddButton(c, "Come here", () => brain?.movement?.Perform(CompanionAction.ComeClose), null, 17).rect, L, y, tw, 42);
+            _learn = AddButton(c, "Learn", Learn, null, 16);
+            PlaceTL(_learn.rect, L + (tw + tg), y, tw, 42);
+            PlaceTL(AddButton(c, "Forget me", ForgetMe, null, 17).rect, L + 2 * (tw + tg), y, tw, 42);
+            PlaceTL(AddButton(c, "Close", () => gameObject.SetActive(false), null, 17).rect, L + 3 * (tw + tg), y, tw, 42);
+        }
+
+        PanelButton _learn;
+
+        /// <summary>Language lessons: tap to start, tap again for the next language, after the last one it stops.</summary>
+        void Learn()
+        {
+            var lang = HarleyLanguage.Instance;
+            if (lang == null && brain != null) lang = brain.gameObject.AddComponent<HarleyLanguage>();
+            if (lang == null) return;
+            lang.MenuPress();
+            if (_learn) _learn.label.text = lang.Active ? lang.Language : "Learn";
+            brain?.voice?.ShowStatus(lang.Active ? "(Learn " + lang.Language + ": tap again to switch language, after Turkish it stops)" : "(Lesson over)", 4f);
         }
 
         void PickTool(HarleyTools.Tool t)
@@ -204,6 +219,7 @@ namespace Harley
         void UpdateStatus()
         {
             _nextStatus = Time.unscaledTime + 0.3f;
+            if (_learn && HarleyLanguage.Instance != null) _learn.label.text = HarleyLanguage.Instance.Active ? HarleyLanguage.Instance.Language : "Learn";
             if (_status == null) return;
             var cfg = brain != null ? brain.config : null;
             var voice = brain != null ? brain.voice : null;

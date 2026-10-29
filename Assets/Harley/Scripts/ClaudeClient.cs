@@ -38,7 +38,7 @@ namespace Harley
   ""properties"": {
     ""say"":     { ""type"": ""string"" },
     ""emotion"": { ""type"": ""string"", ""enum"": [""neutral"",""happy"",""excited"",""curious"",""surprised"",""sad"",""sleepy"",""love""] },
-    ""action"":  { ""type"": ""string"", ""enum"": [""stay"",""follow"",""come_close"",""wander"",""look_at_thing"",""sit"",""hide"",""spin"",""dance"",""wave"",""go_to"",""give"",""take_back"",""hide_and_seek"",""sleep"",""celebrate"",""open_app"",""close_app""] },
+    ""action"":  { ""type"": ""string"", ""enum"": [""stay"",""follow"",""come_close"",""wander"",""look_at_thing"",""sit"",""hide"",""spin"",""dance"",""wave"",""go_to"",""give"",""take_back"",""hide_and_seek"",""sleep"",""celebrate"",""open_app"",""close_app"",""start_lesson"",""next_word"",""stop_lesson""] },
     ""target"":  { ""type"": ""string"" },
     ""remember"": { ""type"": ""string"" },
     ""forget"":  { ""type"": ""boolean"" }
@@ -83,9 +83,19 @@ namespace Harley
                     string err = null; bool done = false;
                     if (look)
                     {
-                        yield return GeminiClient.Send(config, system, turns, tools, t => { done = true; onText?.Invoke(t); }, e => err = e, onToolStart);
-                        if (done) yield break;
-                        Debug.LogWarning("[Harley] Gemini couldn't look (" + err + "), Groq answers without the picture.");
+                        // Gemini only looks (a short description); Groq answers, fast and in Harley's own voice
+                        var last = turns[turns.Count - 1];
+                        string seen = null;
+                        yield return GeminiClient.Describe(config, last.jpegBase64, last.text, d => seen = d);
+                        turns = new List<ChatTurn>(turns);
+                        turns[turns.Count - 1] = new ChatTurn
+                        {
+                            fromUser = true,
+                            text = last.text + (seen != null
+                                ? "\n(What you can see right now, from your eyes: " + seen + ")"
+                                : "\n(You couldn't get a good look this time; don't mention a picture.)")
+                        };
+                        if (seen == null) Debug.LogWarning("[Harley] Gemini couldn't look, Groq answers without the picture.");
                     }
                     err = null;
                     yield return GroqClient.Send(config, system, turns, tools, t => { done = true; onText?.Invoke(t); }, e => err = e, onToolStart);
