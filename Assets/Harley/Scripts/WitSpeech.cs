@@ -281,6 +281,16 @@ namespace Harley
             if (output != null && output.isPlaying) { output.Stop(); SpeechFinished?.Invoke(); }
         }
 
+        /// <summary>How long to leave a voice alone after it failed: the server's retry-after (daily limit = hours), else a few minutes.</summary>
+        static float RestFor(string err)
+        {
+            if (string.IsNullOrEmpty(err)) return 60f;
+            int at = err.IndexOf("retry-after=", System.StringComparison.Ordinal);
+            if (at >= 0 && float.TryParse(err.Substring(at + 12).Split(' ', '\n')[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float sec))
+                return Mathf.Clamp(sec, 30f, 6 * 3600f);
+            return err.Contains("429") ? 1800f : 60f;
+        }
+
         IEnumerator SpeakRoutine(string text, int id)
         {
             if (CloudVoice)
@@ -290,7 +300,7 @@ namespace Harley
                 if (UsesGroq && now >= _groqVoiceRestAt)
                 {
                     yield return GroqClient.Speak(config, text, c => clip = c, e => err = e);
-                    if (clip == null) { _groqVoiceRestAt = Time.unscaledTime + (err != null && err.Contains("429") ? 600f : 60f); Debug.LogWarning("[Harley] Groq voice: " + err); }
+                    if (clip == null) { _groqVoiceRestAt = Time.unscaledTime + RestFor(err); Debug.LogWarning("[Harley] Groq voice: " + err); }
                 }
                 if (clip == null && HasGeminiKey && Time.unscaledTime >= _geminiVoiceRestAt && id == _speakId)
                 {

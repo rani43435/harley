@@ -158,8 +158,17 @@ namespace Harley
             if (IsListening) { IsListening = false; ListeningChanged?.Invoke(false); }
             if (_witSpeaking)
             {
-                // No voice: fall back to the babble voice so Harley still "talks".
+                // Cloud voice used up: the headset's own voice says this line, else the babble voice.
                 _witSpeaking = false;
+                if (IsSpeaking && subtitle != null && NativeSpeaks && _native.Speak(subtitle.text, NativeVoice.Guess(subtitle.text, config != null ? config.witLanguage : "en")))
+                {
+                    _nativeSpeaking = true;
+                    _speakDuration = EstimateDuration(subtitle.text) + 1.5f;
+                    _speakStarted = Time.time;
+                    _speakEndsAt = Time.time + _speakDuration;
+                    _ttsReportsTiming = false;
+                    return;
+                }
                 if (sounds != null && IsSpeaking && subtitle != null)
                 {
                     _speakDuration = Mathf.Max(0.8f, sounds.Babble(subtitle.text, Emotion.Neutral) + 0.15f);

@@ -192,7 +192,12 @@ namespace Harley
                     req.timeout = 20;
                     yield return req.SendWebRequest();
                     if (req.result == UnityWebRequest.Result.Success) wav = req.downloadHandler.data;
-                    else error = "voice HTTP " + req.responseCode;
+                    else
+                    {
+                        error = "voice HTTP " + req.responseCode;
+                        string wait = req.GetResponseHeader("retry-after");
+                        if (!string.IsNullOrEmpty(wait)) error += " retry-after=" + wait.Trim();
+                    }
                 }
                 if (wav == null) { if (samples.Count == 0) { fail(error); yield break; } break; } // keep what we have
                 if (!ReadWav(wav, samples, out rate, out channels)) { fail("bad voice audio"); yield break; }
