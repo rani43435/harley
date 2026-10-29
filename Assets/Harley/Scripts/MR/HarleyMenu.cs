@@ -108,7 +108,7 @@ namespace Harley
             if (lang == null && brain != null) lang = brain.gameObject.AddComponent<HarleyLanguage>();
             if (lang == null) return;
             lang.MenuPress();
-            if (_learn) _learn.label.text = lang.Active ? lang.Language : "Learn";
+            if (_learn != null) _learn.label.text = lang.Active ? lang.Language : "Learn";
             brain?.voice?.ShowStatus(lang.Active ? "(Learn " + lang.Language + ": tap again to switch language, after Turkish it stops)" : "(Lesson over)", 4f);
         }
 
@@ -219,7 +219,7 @@ namespace Harley
         void UpdateStatus()
         {
             _nextStatus = Time.unscaledTime + 0.3f;
-            if (_learn && HarleyLanguage.Instance != null) _learn.label.text = HarleyLanguage.Instance.Active ? HarleyLanguage.Instance.Language : "Learn";
+            if (_learn != null && HarleyLanguage.Instance != null) _learn.label.text = HarleyLanguage.Instance.Active ? HarleyLanguage.Instance.Language : "Learn";
             if (_status == null) return;
             var cfg = brain != null ? brain.config : null;
             var voice = brain != null ? brain.voice : null;
