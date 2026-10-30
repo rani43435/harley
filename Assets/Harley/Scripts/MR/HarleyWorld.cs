@@ -44,8 +44,8 @@ namespace Harley
         {
             if (head == null && Camera.main != null) head = Camera.main.transform;
             if (room == null) room = FindAnyObjectByType<CompanionRoom>();
-            int saved = PlayerPrefs.GetInt(Pref, 0);
-            if (saved != 0) StartCoroutine(Later((Mode)saved));
+            // Always open in your own room (safe, and the headset may not know where the floor is yet)
+            PlayerPrefs.SetInt(Pref, 0);
             SuppressBoundary(true); // walk around the whole room: no boundary while you can see it
         }
 
@@ -184,6 +184,12 @@ namespace Harley
 
         void Update()
         {
+            // The real floor became known after the world was built: put the ground under your feet
+            if (_world != null && _world.activeSelf && room != null && room.FloorY.HasValue && Mathf.Abs(room.FloorY.Value - _floorY) > 0.05f)
+            {
+                _world.transform.position += Vector3.up * (room.FloorY.Value - _floorY);
+                _floorY = room.FloorY.Value;
+            }
             // The room scan can arrive late or change: keep the wall portals in step with it
             if (false && Current == Mode.Blend && Time.unscaledTime >= _nextWindowsRefresh)
             {
@@ -325,12 +331,20 @@ namespace Harley
 
         // ---------- building the world ----------
 
+        float FloorNow(CompanionMovement mover)
+        {
+            if (room != null && room.FloorY.HasValue) return room.FloorY.Value;
+            if (head != null && head.position.y > 0.8f) return 0f;          // floor-level tracking
+            if (head != null && head.position.y != 0f) return head.position.y - 1.6f; // eye-level tracking
+            return mover != null ? mover.floorY : 0f;
+        }
+
         void Build()
         {
             _world = new GameObject("Harley World");
             Transform w = _world.transform;
             var mover = FindAnyObjectByType<CompanionMovement>();
-            _floorY = mover != null ? mover.floorY : 0f;
+            _floorY = FloorNow(mover);
             Vector3 c = head != null ? new Vector3(head.position.x, _floorY, head.position.z) : new Vector3(0, _floorY, 0);
             var rnd = new System.Random(7);
             float R(float a, float b) => a + (float)rnd.NextDouble() * (b - a);
