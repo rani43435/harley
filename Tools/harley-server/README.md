@@ -33,11 +33,14 @@ Check it works: `curl https://<ref>.supabase.co/functions/v1/harley/health` give
 | | Free | Pro |
 |---|---|---|
 | Brain | Groq (your free key) | Claude Haiku 5.5 (your Claude credit), Groq as backup |
-| Answers a day | 30 (`FREE_LIMIT_CHAT`) | 500 (`PRO_LIMIT_CHAT`) |
-| Looking at pictures | 5 (Gemini) | 150 (Claude sees them itself) |
-| Listening (Whisper) | 40 | 600 |
+| Daily allowance | 150,000 units (`FREE_DAILY_UNITS`) | 3,000,000 units (`PRO_DAILY_UNITS`) |
+| Pictures | Gemini | Claude sees them itself |
 
-Change any of them with `supabase secrets set FREE_LIMIT_CHAT=50` (kinds: CHAT, LISTEN, VISION, SPEAK, OTHER).
+The allowance works like Claude's usage meter: every request counts what it really used (tokens read +
+4x tokens written; a spoken sentence through Whisper = 1,500), the app shows it as a percent bar with the
+time it resets (00:00 UTC). One answer of Harley is roughly 3,000-5,000 units. Change with
+`supabase secrets set FREE_DAILY_UNITS=200000`. There are also high safety caps on the number of requests
+(`FREE_LIMIT_CHAT` etc.) only against abuse.
 Only `claude-haiku-5-5` is allowed for Claude (`CLAUDE_MODELS`), and Claude's paid server tools (web search) are blocked.
 
 **Making a headset Pro**

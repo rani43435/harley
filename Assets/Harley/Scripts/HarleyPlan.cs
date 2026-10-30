@@ -61,7 +61,7 @@ namespace Harley
             }
         }
 
-        /// <summary>For the menu: a little usage bar, like Claude's: "Free ▰▰▰▱▱▱▱▱▱▱ 32% · resets in 4h 20m".</summary>
+        /// <summary>For the menu: a little usage bar, like Claude's: "Free |||||||||||||||| 32% · resets in 4h 20m".</summary>
         public string Label
         {
             get
@@ -69,9 +69,9 @@ namespace Harley
                 if (!HarleyServer.On(config)) return "";
                 if (!Known) return "…";
                 int filled = Mathf.Clamp(Mathf.RoundToInt(Percent / 10f), 0, 10);
-                string bar = new string('▰', filled) + new string('▱', 10 - filled);
                 string color = Percent >= 90 ? "#F87171" : Percent >= 70 ? "#FBBF24" : "#C4B1FB";
-                return $"{(Plan == "pro" ? "Pro" : "Free")} <color={color}>{bar}</color> {Percent}% · resets in {ResetsIn}";
+                string bar = $"<color={color}>{new string('|', filled * 2)}</color><color=#4B4560>{new string('|', (10 - filled) * 2)}</color>";
+                return $"{(Plan == "pro" ? "Pro" : "Free")} {bar} {Percent}% · resets in {ResetsIn}";
             }
         }
     }
