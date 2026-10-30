@@ -54,7 +54,7 @@ namespace Harley
         // ---------- building ----------
 
         class CardRef { public PanelButton button; public TextMeshProUGUI title, sub; public Image icon; }
-        class Usage { public GameObject root; public TextMeshProUGUI pill, text; public RectTransform fill; public Image fillImage; }
+        class Usage { public GameObject root, bar; public TextMeshProUGUI pill, text; public RectTransform fill; public Image fillImage; }
         class Switch { public PanelButton button; public RectTransform knob; public Image track; public Func<bool> get; }
         class Tab { public PanelButton button; public Image icon; public TextMeshProUGUI label; public GameObject page; public string title, subtitle; }
 
@@ -316,6 +316,7 @@ namespace Harley
             u.pill = Text(pill.rectTransform, "Free", 12, new Color(0.89f, 0.86f, 1f, 1f), 0, 2, 52, 20, true, TextAlignmentOptions.Center);
             var bar = Box(bg.rectTransform, "Bar", new Color(1f, 1f, 1f, 0.1f));
             PlaceTL(bar.rectTransform, 76, 19, 170, 6);
+            u.bar = bar.gameObject;
             u.fillImage = Box(bar.rectTransform, "Fill", primary);
             u.fill = u.fillImage.rectTransform;
             Place(u.fill, Vector2.zero, new Vector2(0f, 1f), Vector2.zero, Vector2.zero);
@@ -492,11 +493,12 @@ namespace Harley
             foreach (var u in _usage)
             {
                 u.root.SetActive(true);
+                u.bar.SetActive(server);
                 if (!server)
                 {
                     u.pill.text = "Dev";
                     u.fill.anchorMax = new Vector2(0f, 1f);
-                    u.text.text = "your own keys";
+                    u.text.text = "using your own AI keys · no daily limit";
                     continue;
                 }
                 u.pill.text = plan.Plan == "pro" ? "Pro" : "Free";
