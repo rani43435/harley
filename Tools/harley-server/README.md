@@ -12,7 +12,7 @@ The headset voice (Piper) runs on the Quest itself and never touches the server.
 ## Set up (once, about 10 minutes)
 
 1. Make a free project on supabase.com (any name, e.g. `harley`).
-2. Install the Supabase CLI (`brew install supabase/tap/supabase`) and in this folder run:
+2. Easiest: run `sh Tools/harley-server/deploy.sh` (it does all of the below and asks for the keys). Or by hand: install the Supabase CLI (`brew install supabase/tap/supabase`) and in this folder run:
    ```
    supabase login
    supabase link --project-ref <your project ref>
