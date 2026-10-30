@@ -43,8 +43,9 @@ namespace Harley
         public bool UsesGemini => !HasToken && !UsesGroq && HasGeminiKey;
         bool CloudVoice => !HasToken && (UsesGroq || HasGeminiKey);
         public bool CanListen => HasToken || UsesGroq || UsesGemini;
+        bool PiperReady => config != null && config.offlineVoice && PiperVoice.Instance != null && PiperVoice.Instance.Ready;
         public bool CanSpeak => config != null && config.witVoiceOutput &&
-                                (HasToken || (CloudVoice && config.geminiVoiceOutput && Time.unscaledTime >= _cloudVoiceRestAt));
+                                (PiperReady || HasToken || (CloudVoice && config.geminiVoiceOutput && Time.unscaledTime >= _cloudVoiceRestAt));
         // When every free voice is used up, rest a while (Harley babbles meanwhile) and then try again: it never stays silent for good
         float _cloudVoiceRestAt, _groqVoiceRestAt, _geminiVoiceRestAt;
         public bool IsRecording { get; private set; }
@@ -67,6 +68,7 @@ namespace Harley
 
         void Awake()
         {
+            if (!GetComponent<PiperVoice>()) gameObject.AddComponent<PiperVoice>();
             if (!output)
             {
                 output = gameObject.AddComponent<AudioSource>();
@@ -293,6 +295,23 @@ namespace Harley
 
         IEnumerator SpeakRoutine(string text, int id)
         {
+            if (PiperReady)
+            {
+                AudioClip local = null;
+                yield return PiperVoice.Instance.Speak(text, c => local = c);
+                if (id != _speakId) yield break;
+                if (local != null)
+                {
+                    output.clip = local;
+                    output.volume = Mathf.Clamp01(config.voiceVolume);
+                    output.Play();
+                    SpeechStarted?.Invoke();
+                    while (id == _speakId && output.isPlaying) yield return null;
+                    if (id == _speakId) SpeechFinished?.Invoke();
+                    yield break;
+                }
+                // else: fall through to the cloud voices
+            }
             if (CloudVoice)
             {
                 AudioClip clip = null; string err = null;

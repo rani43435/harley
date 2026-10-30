@@ -50,6 +50,8 @@ namespace Harley
         public string witToken = "";
         [Tooltip("Harley talks out loud with Wit's voice. Off = cute babble voice with subtitles.")]
         public bool witVoiceOutput = true;
+        [Tooltip("Harley's own voice on the headset (Piper): no internet, no daily limit. Cloud voices are used only if it's off or missing.")]
+        public bool offlineVoice = true;
         [Tooltip("Language of your Wit app, used to pick a voice: en, ar, de...")]
         public string witLanguage = "en";
         [Tooltip("Optional exact Wit voice name. Empty = the first voice for the language above.")]

@@ -122,7 +122,7 @@ namespace Harley
             wit.Failed += OnWitFailed;
             wit.SpeechStarted += () => { if (_witSpeaking) OnTtsStarted(); };
             wit.SpeechFinished += () => { if (_witSpeaking) { _witSpeaking = false; OnTtsFinished(); } };
-            if (WitSpeaks && ttsAudio == null) ttsAudio = wit.output;
+            if (ttsAudio == null) ttsAudio = wit.output; // cloud or Piper voice plays here (Piper gets ready a moment after start)
             if (wit.HasToken) Debug.Log("[Harley] Voice: Wit.ai connected (talk " + (WitListens ? "on" : "off") + ", speech " + (WitSpeaks ? "on" : "off") + ").");
         }
 
