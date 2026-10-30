@@ -176,7 +176,7 @@ namespace Harley
 
         static IEnumerator Generate(CompanionConfig config, string json, Action<Dictionary<string, object>> ok, Action<string> fail, int timeout = 0)
         {
-            if (string.IsNullOrWhiteSpace(config.geminiApiKey)) { fail("No API key. Put your Gemini key in the CompanionConfig asset."); yield break; }
+            if (!config.HasGemini) { fail("No API key. Put your Gemini key in the CompanionConfig asset."); yield break; }
 
             var models = new List<string>();
             string first = _resolvedModel ?? (string.IsNullOrWhiteSpace(config.geminiModel) ? Fallbacks[0] : config.geminiModel.Trim());
@@ -188,7 +188,7 @@ namespace Harley
                 string model = models[attempt];
                 long code = 0;
                 string raw = null, err = null;
-                yield return Post(config, Api + "models/" + model + ":generateContent", json, (c, r, e) => { code = c; raw = r; err = e; }, timeout);
+                yield return Post(config, HarleyServer.Gemini(config) + "models/" + model + ":generateContent", json, (c, r, e) => { code = c; raw = r; err = e; }, timeout);
 
                 if (err == null)
                 {
@@ -219,9 +219,9 @@ namespace Harley
 
         static IEnumerator FindFlashModel(CompanionConfig config, Action<string> done)
         {
-            using (var req = UnityWebRequest.Get(Api + "models?pageSize=200"))
+            using (var req = UnityWebRequest.Get(HarleyServer.Gemini(config) + "models?pageSize=200"))
             {
-                req.SetRequestHeader("x-goog-api-key", config.geminiApiKey.Trim());
+                HarleyServer.AuthGemini(req, config);
                 req.timeout = 15;
                 yield return req.SendWebRequest();
                 if (req.result != UnityWebRequest.Result.Success) { done(null); yield break; }
@@ -249,7 +249,7 @@ namespace Harley
                 req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
                 req.downloadHandler = new DownloadHandlerBuffer();
                 req.SetRequestHeader("content-type", "application/json");
-                req.SetRequestHeader("x-goog-api-key", config.geminiApiKey.Trim());
+                HarleyServer.AuthGemini(req, config);
                 req.timeout = Mathf.Max(5, timeout > 0 ? timeout : config.requestTimeout);
                 yield return req.SendWebRequest();
                 string raw = req.downloadHandler != null ? req.downloadHandler.text : "";
@@ -310,7 +310,7 @@ namespace Harley
             if (!_noTranscribeModel)
             {
                 long code = 0; string raw = null, err = null;
-                yield return Post(config, Api + "models/" + TranscribeModel + ":generateContent", json, (c, r, e) => { code = c; raw = r; err = e; }, 15);
+                yield return Post(config, HarleyServer.Gemini(config) + "models/" + TranscribeModel + ":generateContent", json, (c, r, e) => { code = c; raw = r; err = e; }, 15);
                 if (err == null) { try { resp = MiniJson.Parse(raw) as Dictionary<string, object>; } catch { } }
                 else if (code == 404 || code == 400) _noTranscribeModel = true;
             }
@@ -334,7 +334,7 @@ namespace Harley
         /// <summary>Text to speech with a Gemini TTS model. Gives back a clip, or fails (then Harley babbles).</summary>
         public static IEnumerator Speak(CompanionConfig config, string text, Action<AudioClip> ok, Action<string> fail)
         {
-            if (string.IsNullOrWhiteSpace(config.geminiApiKey)) { fail("no key"); yield break; }
+            if (!config.HasGemini) { fail("no key"); yield break; }
             if (!_ttsLookedUp)
             {
                 _ttsLookedUp = true;
@@ -352,7 +352,7 @@ namespace Harley
                     "responseModalities", new List<object> { "AUDIO" },
                     "speechConfig", MiniJson.Obj("voiceConfig", MiniJson.Obj("prebuiltVoiceConfig", MiniJson.Obj("voiceName", voiceName)))));
             long code = 0; string raw = null, err = null;
-            yield return Post(config, Api + "models/" + _ttsModel + ":generateContent", MiniJson.Serialize(body), (c, r, e) => { code = c; raw = r; err = e; }, 25);
+            yield return Post(config, HarleyServer.Gemini(config) + "models/" + _ttsModel + ":generateContent", MiniJson.Serialize(body), (c, r, e) => { code = c; raw = r; err = e; }, 25);
             if (err != null) { fail("voice HTTP " + code); yield break; }
 
             Dictionary<string, object> resp = null;
@@ -385,9 +385,9 @@ namespace Harley
 
         static IEnumerator FindModel(CompanionConfig config, Func<string, bool> match, Action<string> done)
         {
-            using (var req = UnityWebRequest.Get(Api + "models?pageSize=200"))
+            using (var req = UnityWebRequest.Get(HarleyServer.Gemini(config) + "models?pageSize=200"))
             {
-                req.SetRequestHeader("x-goog-api-key", config.geminiApiKey.Trim());
+                HarleyServer.AuthGemini(req, config);
                 req.timeout = 15;
                 yield return req.SendWebRequest();
                 if (req.result != UnityWebRequest.Result.Success) { done(null); yield break; }

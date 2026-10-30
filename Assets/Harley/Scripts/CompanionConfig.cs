@@ -28,8 +28,15 @@ namespace Harley
         public string groqVoiceArabic = "noura";
 
         /// <summary>True when the chosen AI has a key.</summary>
-        public bool HasBrainKey => !string.IsNullOrWhiteSpace(groqApiKey) || !string.IsNullOrWhiteSpace(provider == AiProvider.Gemini ? geminiApiKey : apiKey) &&
+        public bool HasBrainKey => !string.IsNullOrWhiteSpace(serverUrl) || !string.IsNullOrWhiteSpace(groqApiKey) || !string.IsNullOrWhiteSpace(provider == AiProvider.Gemini ? geminiApiKey : apiKey) &&
                                    (provider == AiProvider.Gemini || apiKey.Trim().StartsWith("sk-"));
+
+        [Header("Harley server (for sharing the app: keys stay on the server, see Tools/harley-server)")]
+        [Tooltip("e.g. https://xxxx.supabase.co/functions/v1/harley. Empty = talk to Groq / Gemini directly with the keys here.")]
+        public string serverUrl = "";
+        [Tooltip("The app key the server expects (HARLEY_APP_KEY). Not a secret API key; it only keeps random visitors out.")]
+        public string serverAppKey = "";
+        public bool HasGemini => !string.IsNullOrWhiteSpace(serverUrl) || !string.IsNullOrWhiteSpace(geminiApiKey);
 
         [Header("Gemini (free tier: aistudio.google.com > Get API key)")]
         public string geminiApiKey = "";

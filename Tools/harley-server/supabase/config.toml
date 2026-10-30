@@ -1,0 +1,2 @@
+[functions.harley]
+verify_jwt = false # the function checks its own app key (x-harley-key)

@@ -78,7 +78,7 @@ namespace Harley
                 Busy = true;
                 try
                 {
-                    bool hasGemini = !string.IsNullOrWhiteSpace(config.geminiApiKey);
+                    bool hasGemini = config.HasGemini;
                     bool look = hasGemini && NeedsEyes(turns);
                     string err = null; bool done = false;
                     if (look)
@@ -185,7 +185,7 @@ namespace Harley
                 string found = null;
                 yield return GroqClient.Search(config, query, c, r => found = r);
                 if (found != null) { done?.Invoke(found); yield break; }
-                if (!string.IsNullOrWhiteSpace(config.geminiApiKey)) { yield return GeminiClient.Search(config, query, c, done); yield break; }
+                if (config.HasGemini) { yield return GeminiClient.Search(config, query, c, done); yield break; }
                 done?.Invoke("Search failed.");
                 yield break;
             }

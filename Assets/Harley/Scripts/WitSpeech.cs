@@ -39,7 +39,7 @@ namespace Harley
         /// <summary>No Wit token, but a Gemini key: Gemini does the listening (and the voice, while it works).</summary>
         /// <summary>No Wit token: Groq (Whisper + Orpheus) does the hearing and the voice, Gemini as the backup.</summary>
         public bool UsesGroq => !HasToken && GroqClient.Has(config);
-        bool HasGeminiKey => config != null && !string.IsNullOrWhiteSpace(config.geminiApiKey);
+        bool HasGeminiKey => config != null && config.HasGemini;
         public bool UsesGemini => !HasToken && !UsesGroq && HasGeminiKey;
         bool CloudVoice => !HasToken && (UsesGroq || HasGeminiKey);
         public bool CanListen => HasToken || UsesGroq || UsesGemini;

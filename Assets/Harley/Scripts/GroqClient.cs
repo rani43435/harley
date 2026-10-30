@@ -21,7 +21,7 @@ namespace Harley
         const int MaxToolRounds = 4;
         static readonly string[] Fallbacks = { "openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b" };
 
-        public static bool Has(CompanionConfig c) => c != null && !string.IsNullOrWhiteSpace(c.groqApiKey);
+        public static bool Has(CompanionConfig c) => c != null && (HarleyServer.On(c) || !string.IsNullOrWhiteSpace(c.groqApiKey));
 
         const string JsonRule =
             "\n\nAnswer with ONLY one JSON object, no markdown, exactly these keys: " +
@@ -154,9 +154,9 @@ namespace Harley
                 new MultipartFormDataSection("response_format", "json"),
                 new MultipartFormDataSection("temperature", "0"),
             };
-            using (var req = UnityWebRequest.Post(Api + "audio/transcriptions", form))
+            using (var req = UnityWebRequest.Post(HarleyServer.Groq(config) + "audio/transcriptions", form))
             {
-                req.SetRequestHeader("Authorization", "Bearer " + config.groqApiKey.Trim());
+                HarleyServer.AuthGroq(req, config);
                 req.timeout = 20;
                 yield return req.SendWebRequest();
                 string raw = req.downloadHandler != null ? req.downloadHandler.text : "";
@@ -183,11 +183,11 @@ namespace Harley
             {
                 var body = MiniJson.Obj("model", model, "input", arabic ? piece : "[cheerful] " + piece, "voice", voice, "response_format", "wav");
                 byte[] wav = null; string error = null;
-                using (var req = new UnityWebRequest(Api + "audio/speech", UnityWebRequest.kHttpVerbPOST))
+                using (var req = new UnityWebRequest(HarleyServer.Groq(config) + "audio/speech", UnityWebRequest.kHttpVerbPOST))
                 {
                     req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(MiniJson.Serialize(body)));
                     req.downloadHandler = new DownloadHandlerBuffer();
-                    req.SetRequestHeader("Authorization", "Bearer " + config.groqApiKey.Trim());
+                    HarleyServer.AuthGroq(req, config);
                     req.SetRequestHeader("Content-Type", "application/json");
                     req.timeout = 20;
                     yield return req.SendWebRequest();
@@ -258,11 +258,11 @@ namespace Harley
 
         static IEnumerator Post(CompanionConfig config, string path, string json, Action<Dictionary<string, object>> ok, Action<string> fail, int timeout)
         {
-            using (var req = new UnityWebRequest(Api + path, UnityWebRequest.kHttpVerbPOST))
+            using (var req = new UnityWebRequest(HarleyServer.Groq(config) + path, UnityWebRequest.kHttpVerbPOST))
             {
                 req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
                 req.downloadHandler = new DownloadHandlerBuffer();
-                req.SetRequestHeader("Authorization", "Bearer " + config.groqApiKey.Trim());
+                HarleyServer.AuthGroq(req, config);
                 req.SetRequestHeader("Content-Type", "application/json");
                 req.timeout = Mathf.Max(5, timeout);
                 yield return req.SendWebRequest();
