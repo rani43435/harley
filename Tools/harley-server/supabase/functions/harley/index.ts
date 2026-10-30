@@ -4,9 +4,11 @@
 // Plans
 //   free : Groq (your free key), a small daily allowance
 //   pro  : Claude Haiku (your Claude credit) with Groq as backup, a big daily allowance
+// The allowance is measured like Claude's usage meter: what each request really used (tokens, answers
+// weigh more than questions; listening and pictures count too), shown as a percentage that resets at 00:00 UTC.
 //
 // Routes (all need  x-harley-key: <HARLEY_APP_KEY>  and  x-harley-device: <anonymous headset id>)
-//   GET  /harley/me                              -> plan + what's used today
+//   GET  /harley/me                              -> plan, percent of today's allowance used, seconds until reset
 //   POST /harley/claude/messages                 -> Claude (pro only)
 //   POST /harley/groq/chat/completions           -> Groq (OpenAI format)
 //   POST /harley/groq/audio/transcriptions       -> Groq Whisper (speech to text)
@@ -21,7 +23,7 @@
 // Secrets (supabase secrets set ...):
 //   GROQ_API_KEY, GEMINI_API_KEY, ANTHROPIC_API_KEY, HARLEY_APP_KEY, ADMIN_KEY
 //   CLAUDE_CREDIT (dollars you put on the Claude account), CLAUDE_CREDIT_SINCE (YYYY-MM-DD you put it), RESERVE_USD
-//   optional: FREE_LIMIT_<KIND>, PRO_LIMIT_<KIND>, PRO_DEVICES (comma list), META_APP_ID, META_APP_SECRET, PRO_SKUS
+//   optional: FREE_DAILY_UNITS, PRO_DAILY_UNITS, FREE_LIMIT_<KIND>, PRO_LIMIT_<KIND> (safety caps), PRO_DEVICES (comma list), META_APP_ID, META_APP_SECRET, PRO_SKUS
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const env = (k: string, d = "") => Deno.env.get(k) ?? d;
@@ -32,11 +34,20 @@ const META = env("META_BASE", "https://graph.oculus.com/");
 
 type Kind = "chat" | "listen" | "speak" | "vision" | "other";
 type Plan = "free" | "pro";
-const KINDS: Kind[] = ["chat", "listen", "speak", "vision", "other"];
+// Safety caps on the number of requests (only against abuse; the real limit is the daily allowance below)
 const DEFAULTS: Record<Plan, Record<Kind, number>> = {
-  free: { chat: 30, listen: 40, speak: 10, vision: 5, other: 20 },
-  pro: { chat: 500, listen: 600, speak: 50, vision: 150, other: 100 },
+  free: { chat: 300, listen: 300, speak: 50, vision: 30, other: 50 },
+  pro: { chat: 3000, listen: 3000, speak: 300, vision: 600, other: 300 },
 };
+// Daily allowance in units. One answer of Harley is roughly 3,000-5,000 units.
+const DAILY_UNITS: Record<Plan, number> = {
+  free: Number(env("FREE_DAILY_UNITS", "150000")),
+  pro: Number(env("PRO_DAILY_UNITS", "3000000")),
+};
+const OUTPUT_WEIGHT = 4;         // a generated token costs about 4-5x a read one
+const LISTEN_UNITS = 1500;       // one spoken sentence through Whisper
+const SPEAK_UNITS_PER_CHAR = 3;  // cloud voice (only if the headset voice is off)
+const unitsToday = async (device: string) => Number((await db.rpc("harley_units_today", { p_device: device })).data ?? 0);
 const limit = (plan: Plan, kind: Kind) =>
   Number(env(`${plan.toUpperCase()}_LIMIT_${kind.toUpperCase()}`, String(DEFAULTS[plan][kind])));
 
@@ -76,13 +87,6 @@ async function planOf(device: string): Promise<Plan> {
   return "free";
 }
 
-async function usedToday(device: string) {
-  const { data } = await db.from("harley_usage").select("kind, count").eq("device", device).eq("day", today());
-  const used: Record<string, number> = {};
-  for (const r of data ?? []) used[r.kind] = r.count;
-  return used;
-}
-
 const today = () => new Date().toISOString().slice(0, 10);
 
 Deno.serve(async (req) => {
@@ -100,10 +104,8 @@ Deno.serve(async (req) => {
   const plan = await planOf(device);
 
   if (rest === "me") {
-    const used = await usedToday(device);
-    const limits: Record<string, number> = {};
-    for (const k of KINDS) limits[k] = limit(plan, k);
-    return reply(200, { plan, used, limits });
+    const used = await unitsToday(device);
+    return reply(200, { plan, percent: Math.min(100, Math.round((used / DAILY_UNITS[plan]) * 100)), resets_in: secondsToMidnight() });
   }
   if (rest === "pro/verify" && req.method === "POST") return verifyPro(req, device);
 
@@ -152,12 +154,13 @@ Deno.serve(async (req) => {
     return reply(404, { error: "unknown route" });
   }
 
-  // Daily allowance per headset and plan
-  const { data: used, error } = await db.rpc("harley_count", { p_device: device, p_kind: kind });
+  // Today's allowance (percent, like Claude's usage meter) and a safety cap on the number of requests
+  const limitReached = () => reply(429, { error: "daily limit reached", plan, percent: 100, resets_in: secondsToMidnight() },
+    { "retry-after": String(secondsToMidnight()) });
+  if ((await unitsToday(device)) >= DAILY_UNITS[plan]) return limitReached();
+  const { data: count, error } = await db.rpc("harley_count", { p_device: device, p_kind: kind });
   if (error) return reply(500, { error: "usage db: " + error.message });
-  if ((used as number) > limit(plan, kind)) {
-    return reply(429, { error: `daily limit reached (${kind})`, plan }, { "retry-after": String(secondsToMidnight()) });
-  }
+  if ((count as number) > limit(plan, kind)) return limitReached();
 
   const r = await fetch(target + url.search, { method: req.method, headers, body });
   const out = new Headers({ "content-type": r.headers.get("content-type") ?? "application/json" });
@@ -173,10 +176,17 @@ Deno.serve(async (req) => {
         const price = PRICES[model] ?? [0, 0];
         const free = provider === "gemini" || (provider === "groq" && GROQ_FREE);
         const cost = free ? 0 : (tin * price[0] + tout * price[1]) / 1e6;
-        await db.rpc("harley_add_cost", { p_device: device, p_kind: kind, p_provider: provider, p_in: tin, p_out: tout, p_cost: cost });
+        const units = Math.round(tin + tout * OUTPUT_WEIGHT);
+        await db.rpc("harley_add_usage", { p_device: device, p_kind: kind, p_provider: provider, p_in: Math.round(tin), p_out: tout, p_cost: cost, p_units: units });
       } catch { /* the answer still goes through */ }
     }
     return new Response(text, { status: r.status, headers: out });
+  }
+  if (r.ok) {
+    const units = kind === "listen" ? LISTEN_UNITS
+      : kind === "speak" ? SPEAK_UNITS_PER_CHAR * String(json()?.input ?? "").length
+      : 0;
+    if (units) await db.rpc("harley_add_usage", { p_device: device, p_kind: kind, p_provider: "", p_in: 0, p_out: 0, p_cost: 0, p_units: units });
   }
   return new Response(r.body, { status: r.status, headers: out });
 });

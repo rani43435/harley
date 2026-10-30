@@ -17,7 +17,9 @@ namespace Harley
         public CompanionConfig config;
         public string Plan { get; private set; } = "free";
         public bool Known { get; private set; }
-        readonly Dictionary<string, int> _used = new Dictionary<string, int>(), _limits = new Dictionary<string, int>();
+        /// <summary>How much of today's allowance is used, 0-100 (like Claude's usage meter).</summary>
+        public int Percent { get; private set; }
+        float _resetsAt;
         float _next;
 
         void Awake() { Instance = this; }
@@ -42,29 +44,34 @@ namespace Harley
                 if (req.result != UnityWebRequest.Result.Success) yield break;
                 if (!(MiniJson.Parse(req.downloadHandler.text) is Dictionary<string, object> d)) yield break;
                 Plan = d.Str("plan") ?? "free";
-                Copy(d.ObjAt("used"), _used);
-                Copy(d.ObjAt("limits"), _limits);
+                Percent = d.TryGetValue("percent", out var p) ? System.Convert.ToInt32(p) : 0;
+                float resets = d.TryGetValue("resets_in", out var r) ? System.Convert.ToSingle(r) : 0f;
+                _resetsAt = Time.unscaledTime + resets;
                 Known = true;
             }
         }
 
-        static void Copy(Dictionary<string, object> src, Dictionary<string, int> dst)
+        /// <summary>When today's allowance comes back, e.g. "4h 20m".</summary>
+        public string ResetsIn
         {
-            dst.Clear();
-            if (src == null) return;
-            foreach (var kv in src) dst[kv.Key] = System.Convert.ToInt32(kv.Value);
+            get
+            {
+                int s = Mathf.Max(0, Mathf.RoundToInt(_resetsAt - Time.unscaledTime));
+                return s >= 3600 ? $"{s / 3600}h {s % 3600 / 60}m" : $"{Mathf.Max(1, s / 60)}m";
+            }
         }
 
-        /// <summary>For the menu: "Pro" or "Free · 12/30 answers today".</summary>
+        /// <summary>For the menu: a little usage bar, like Claude's: "Free ▰▰▰▱▱▱▱▱▱▱ 32% · resets in 4h 20m".</summary>
         public string Label
         {
             get
             {
                 if (!HarleyServer.On(config)) return "";
                 if (!Known) return "…";
-                if (Plan == "pro") return "Pro";
-                _used.TryGetValue("chat", out int u); _limits.TryGetValue("chat", out int l);
-                return $"Free · {u}/{l} answers today";
+                int filled = Mathf.Clamp(Mathf.RoundToInt(Percent / 10f), 0, 10);
+                string bar = new string('▰', filled) + new string('▱', 10 - filled);
+                string color = Percent >= 90 ? "#F87171" : Percent >= 70 ? "#FBBF24" : "#C4B1FB";
+                return $"{(Plan == "pro" ? "Pro" : "Free")} <color={color}>{bar}</color> {Percent}% · resets in {ResetsIn}";
             }
         }
     }

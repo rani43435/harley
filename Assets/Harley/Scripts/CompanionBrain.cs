@@ -501,6 +501,12 @@ namespace Harley
             if (error.StartsWith("No API key", StringComparison.Ordinal)) return "(no API key: add it in the config)";
             if (error.Contains("HTTP 401") || error.Contains("authentication_error")) return "(the API key is wrong)";
             if (error.Contains("HTTP 403")) return "(this API key isn't allowed to do that)";
+            if (error.Contains("daily limit reached"))
+            {
+                HarleyPlan.Instance?.RefreshSoon();
+                string back = HarleyPlan.Instance != null ? " Back in " + HarleyPlan.Instance.ResetsIn + "." : "";
+                return "(I've used up today's energy." + back + ")";
+            }
             if (error.Contains("HTTP 429")) return "(too many requests, give me a moment)";
             if (error.Contains("HTTP 529") || error.Contains("overloaded")) return "(the AI is busy, try again)";
             if (error.Contains("HTTP 400")) return "(my request was wrong: see the log)";
