@@ -20,12 +20,14 @@ supabase db push
 echo
 printf "Groq API key (gsk_...): "; stty -echo; read -r GROQ; stty echo; echo
 printf "Gemini API key (optional, Enter to skip): "; stty -echo; read -r GEMINI; stty echo; echo
+printf "Claude API key for Pro (optional, Enter to skip): "; stty -echo; read -r CLAUDE; stty echo; echo
+printf "How many dollars of Claude credit did you buy? (e.g. 20, Enter = 0): "; read -r CREDIT
 APPKEY=$(openssl rand -hex 24)
-if [ -n "$GEMINI" ]; then
-  supabase secrets set GROQ_API_KEY="$GROQ" GEMINI_API_KEY="$GEMINI" HARLEY_APP_KEY="$APPKEY" >/dev/null
-else
-  supabase secrets set GROQ_API_KEY="$GROQ" HARLEY_APP_KEY="$APPKEY" >/dev/null
-fi
+ADMIN=$(openssl rand -hex 16)
+set -- GROQ_API_KEY="$GROQ" HARLEY_APP_KEY="$APPKEY" ADMIN_KEY="$ADMIN" CLAUDE_CREDIT="${CREDIT:-0}" CLAUDE_CREDIT_SINCE="$(date +%Y-%m-%d)" RESERVE_USD=20
+[ -n "$GEMINI" ] && set -- "$@" GEMINI_API_KEY="$GEMINI"
+[ -n "$CLAUDE" ] && set -- "$@" ANTHROPIC_API_KEY="$CLAUDE"
+supabase secrets set "$@" >/dev/null
 echo "4) Deploying the function..."
 supabase functions deploy harley --no-verify-jwt
 URL="https://$REF.supabase.co/functions/v1/harley"
@@ -35,3 +37,6 @@ echo
 echo "Done. In Unity > CompanionConfig > Harley server, paste:"
 echo "  Server Url:     $URL"
 echo "  Server App Key: $APPKEY"
+echo
+echo "Your dashboard (keep this link private):"
+echo "  $URL/admin?key=$ADMIN"

@@ -155,6 +155,7 @@ namespace Harley
             sounds?.Play(Sfx.Pop);
             ScheduleProactive();
             if (!GetComponent<HarleyComputer>()) gameObject.AddComponent<HarleyComputer>().brain = this;
+            if (!GetComponent<HarleyPlan>()) gameObject.AddComponent<HarleyPlan>().config = config;
             if (mode != CompanionMode.Window)
             {
                 // Own eyes for objects (YOLO, on the headset) and the language lessons

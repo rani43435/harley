@@ -17,6 +17,15 @@ namespace Harley
         public static string Groq(CompanionConfig c) => On(c) ? Base(c) + "/groq/" : "https://api.groq.com/openai/v1/";
         public static string Gemini(CompanionConfig c) => On(c) ? Base(c) + "/gemini/" : "https://generativelanguage.googleapis.com/v1beta/";
 
+        public static string Claude(CompanionConfig c) => On(c) ? Base(c) + "/claude/messages" : "https://api.anthropic.com/v1/messages";
+
+        public static void AuthClaude(UnityWebRequest req, CompanionConfig c)
+        {
+            if (On(c)) Identify(req, c);
+            else req.SetRequestHeader("x-api-key", (c.apiKey ?? "").Trim());
+            req.SetRequestHeader("anthropic-version", "2023-06-01");
+        }
+
         public static void AuthGroq(UnityWebRequest req, CompanionConfig c)
         {
             if (On(c)) Identify(req, c);

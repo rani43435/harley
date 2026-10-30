@@ -28,20 +28,34 @@ The headset voice (Piper) runs on the Quest itself and never touches the server.
 
 Check it works: `curl https://<ref>.supabase.co/functions/v1/harley/health` gives `{"ok":true}`.
 
-## Daily allowance per headset (change with `supabase secrets set`)
+## Plans
 
-| Secret | Default | What |
+| | Free | Pro |
 |---|---|---|
-| LIMIT_CHAT | 300 | answers (Groq) |
-| LIMIT_LISTEN | 300 | speech-to-text (Whisper) |
-| LIMIT_VISION | 40 | looking at a picture (Gemini) |
-| LIMIT_SPEAK | 50 | cloud voice (only used if the headset voice is off) |
+| Brain | Groq (your free key) | Claude Haiku 5.5 (your Claude credit), Groq as backup |
+| Answers a day | 30 (`FREE_LIMIT_CHAT`) | 500 (`PRO_LIMIT_CHAT`) |
+| Looking at pictures | 5 (Gemini) | 150 (Claude sees them itself) |
+| Listening (Whisper) | 40 | 600 |
 
-Usage today, in the Supabase SQL editor:
+Change any of them with `supabase secrets set FREE_LIMIT_CHAT=50` (kinds: CHAT, LISTEN, VISION, SPEAK, OTHER).
+Only `claude-haiku-5-5` is allowed for Claude (`CLAUDE_MODELS`), and Claude's paid server tools (web search) are blocked.
+
+**Making a headset Pro**
+- Yours, by hand: open the dashboard, copy your headset's id, then `supabase secrets set PRO_DEVICES=<id>`.
+- Buyers: the app sends the Meta store purchase to `/pro/verify` (needs `META_APP_ID`, `META_APP_SECRET`,
+  `PRO_SKUS`, set once the app exists on the Meta store). Pro lasts 35 days and is checked again at each start.
+
+## Your dashboard and the Claude credit
+
+`https://<ref>.supabase.co/functions/v1/harley/admin?key=<ADMIN_KEY>` (deploy.sh prints it) shows:
+Pro headsets, active headsets, calls and cost today and this month, and an estimate of the Claude credit left.
+It turns red when the credit goes under the reserve (`RESERVE_USD`, default $20): time to top up.
+
+After each top-up on console.anthropic.com, tell the server the new total and the date:
 ```
-select kind, count(distinct device) as headsets, sum(count) as calls
-from harley_usage where day = current_date group by kind;
+supabase secrets set CLAUDE_CREDIT=40 CLAUDE_CREDIT_SINCE=2026-11-15
 ```
+Also set a spend alert on console.anthropic.com (Billing), so you hear about it even without the dashboard.
 
 ## Later, before a big public release
 - Check that the app was bought / installed from the store (Meta Platform SDK user proof +

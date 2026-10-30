@@ -245,6 +245,7 @@ namespace Harley
             else if (voice != null && voice.IsListening) s = "<color=#4ADE80>Listening...</color>";
             else if (voice != null && !voice.HasDictation) s = "Talk needs a free Wit token (config). Type works now.";
             else s = "Say \"Hi Harley\", or tap Talk.";
+            if (HarleyPlan.Instance != null && HarleyPlan.Instance.Label.Length > 0) s += "   <color=#C4B1FB>" + HarleyPlan.Instance.Label + "</color>";
             _status.text = s;
             if (_talk != null && _talk.label != null) _talk.label.text = voice != null && voice.IsListening ? "Stop" : "Talk";
             var tools = HarleyTools.Instance;

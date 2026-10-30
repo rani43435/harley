@@ -69,9 +69,24 @@ namespace Harley
         /// Gets Harley's reply. If tools are given, Claude may call them first
         /// (onToolStart tells you which one, e.g. to show "checking the weather").
         /// </summary>
+        /// <summary>Claude answers first: Pro on the Harley server, or your own Claude key without a server.</summary>
+        bool ClaudeFirst => config != null && (HarleyServer.On(config)
+            ? HarleyPlan.IsPro
+            : config.provider == AiProvider.Claude && !string.IsNullOrWhiteSpace(config.apiKey));
+
         public IEnumerator Send(string system, List<ChatTurn> turns, CompanionTools tools,
                                 Action<string> onText, Action<string> onError, Action<string> onToolStart = null)
         {
+            if (ClaudeFirst)
+            {
+                string claudeErr = null; bool answered = false;
+                yield return SendClaude(system, turns, tools, t => { answered = true; onText?.Invoke(t); }, e => claudeErr = e, onToolStart);
+                HarleyPlan.Instance?.RefreshSoon();
+                if (answered) yield break;
+                Debug.LogWarning("[Harley] Claude failed (" + claudeErr + "), using the other brain.");
+                if (!GroqClient.Has(config) && config.provider != AiProvider.Gemini) { onError?.Invoke(claudeErr); yield break; }
+            }
+            HarleyPlan.Instance?.RefreshSoon(5f);
             if (GroqClient.Has(config))
             {
                 // Groq answers fast with big free limits; Gemini only when Harley really needs to look at something
@@ -117,6 +132,12 @@ namespace Harley
                 finally { Busy = false; }
                 yield break;
             }
+            yield return SendClaude(system, turns, tools, onText, onError, onToolStart);
+        }
+
+        IEnumerator SendClaude(string system, List<ChatTurn> turns, CompanionTools tools,
+                               Action<string> onText, Action<string> onError, Action<string> onToolStart)
+        {
             if (!HasKey(onError)) yield break;
             Busy = true;
             try
@@ -275,20 +296,19 @@ namespace Harley
 
         bool HasKey(Action<string> onError)
         {
-            if (config != null && !string.IsNullOrWhiteSpace(config.apiKey)) return true;
+            if (config != null && (HarleyServer.On(config) || !string.IsNullOrWhiteSpace(config.apiKey))) return true;
             onError?.Invoke("No API key. Put your key in the CompanionConfig asset.");
             return false;
         }
 
         IEnumerator Post(string json, Action<Dictionary<string, object>> onOk, Action<string> onError)
         {
-            using (var req = new UnityWebRequest(Endpoint, UnityWebRequest.kHttpVerbPOST))
+            using (var req = new UnityWebRequest(HarleyServer.Claude(config), UnityWebRequest.kHttpVerbPOST))
             {
                 req.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
                 req.downloadHandler = new DownloadHandlerBuffer();
                 req.SetRequestHeader("content-type", "application/json");
-                req.SetRequestHeader("x-api-key", config.apiKey.Trim());
-                req.SetRequestHeader("anthropic-version", ApiVersion);
+                HarleyServer.AuthClaude(req, config);
                 req.timeout = Mathf.Max(5, config.requestTimeout);
 
                 yield return req.SendWebRequest();
