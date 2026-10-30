@@ -92,6 +92,26 @@ namespace Harley
             ViewIndex = Mathf.Clamp(PlayerPrefs.GetInt(Pref + ".view", 0), 0, Mathf.Max(0, _views.Count - 1));
         }
 
+        // ---------- for the menu's World page ----------
+
+        /// <summary>The 360 views by name (the menu shows them as cards).</summary>
+        public int ViewCount { get { LoadViews(); return _views.Count; } }
+        public string ViewName(int i) { LoadViews(); return i >= 0 && i < _views.Count ? _views[i].name : ""; }
+        public Texture2D ViewTexture(int i) { LoadViews(); return i >= 0 && i < _views.Count ? _views[i].tex : null; }
+
+        /// <summary>-1 = my room, 0..ViewCount-1 = a 360 view, ViewCount = Harley's world.</summary>
+        public int Selected => Current == Mode.Room ? -1 : Current == Mode.World ? ViewCount : ViewIndex;
+
+        public void Select(int option)
+        {
+            LoadViews();
+            if (option < 0) { SetMode(Mode.Room); return; }
+            if (option >= _views.Count) { SetMode(Mode.World); return; }
+            ViewIndex = option;
+            PlayerPrefs.SetInt(Pref + ".view", ViewIndex);
+            if (Current == Mode.Blend) ShowView(); else SetMode(Mode.Blend);
+        }
+
         /// <summary>The name shown on the menu button.</summary>
         public string CurrentLabel
         {

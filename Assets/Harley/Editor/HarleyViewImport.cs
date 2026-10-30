@@ -18,6 +18,15 @@ namespace Harley.EditorTools
                 if (path.EndsWith("normal.png")) t.textureType = TextureImporterType.NormalMap;
                 return;
             }
+            if (path.Contains("/Harley/Resources/MenuIcons/"))
+            {
+                var t = (TextureImporter)assetImporter;
+                t.textureType = TextureImporterType.Sprite;
+                t.alphaIsTransparency = true;
+                t.mipmapEnabled = true;
+                t.maxTextureSize = 128;
+                return;
+            }
             if (!assetPath.Replace('\\', '/').Contains("/Harley/Resources/Views/")) return;
             var ti = (TextureImporter)assetImporter;
             ti.textureType = TextureImporterType.Default;

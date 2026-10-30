@@ -44,6 +44,14 @@ namespace Harley
             if (Active) End(); else Begin(Language);
         }
 
+        /// <summary>Menu: pick the language (switches a running lesson too).</summary>
+        public void SetLanguage(string language)
+        {
+            if (Active) { Begin(language); return; }
+            Language = language;
+            PlayerPrefs.SetString("harley.learn.lang", Language);
+        }
+
         /// <summary>Menu language button: the next language, round and round (switches a running lesson too).</summary>
         public void NextLanguage()
         {
