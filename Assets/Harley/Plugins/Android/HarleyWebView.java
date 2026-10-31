@@ -228,6 +228,28 @@ public class HarleyWebView {
     public String getFocusValue() { return focusValue; }
     public boolean isInputFocused() { return inputFocused; }
 
+    // What's playing (title, time, captions), read by Harley for "watch together"
+    private volatile String mediaJson = "";
+    private volatile int mediaSeq = 0;
+    private static final String MEDIA_JS =
+        "(function(){try{var v=document.querySelector('video');var m=navigator.mediaSession&&navigator.mediaSession.metadata;" +
+        "var caps=[].slice.call(document.querySelectorAll('.ytp-caption-segment,.captions-text,.caption-visual-line,.ytlr-caption-segment,[class*=caption-segment]'))" +
+        ".map(function(e){return e.textContent;}).join(' ').replace(/\\s+/g,' ').trim();" +
+        "return JSON.stringify({title:(m&&m.title)||document.title||'',artist:(m&&m.artist)||'',playing:!!(v&&!v.paused&&!v.ended&&v.readyState>2)," +
+        "time:v?Math.round(v.currentTime):0,duration:v&&isFinite(v.duration)?Math.round(v.duration):0,captions:caps.slice(0,280)});}catch(e){return '';}})()";
+
+    /** Asks the page what's playing; the answer arrives a moment later (getMediaSeq goes up). */
+    public void queryMedia() {
+        ui(new Runnable() { @Override public void run() {
+            if (web == null) return;
+            web.evaluateJavascript(MEDIA_JS, new android.webkit.ValueCallback<String>() {
+                @Override public void onReceiveValue(String v) { mediaJson = v != null ? v : ""; mediaSeq++; }
+            });
+        } });
+    }
+    public String getMediaJson() { return mediaJson; }
+    public int getMediaSeq() { return mediaSeq; }
+
     /** Replaces the text of the focused field (Harley's keyboard gives back the whole text). */
     public void setText(final String text) {
         final String js =

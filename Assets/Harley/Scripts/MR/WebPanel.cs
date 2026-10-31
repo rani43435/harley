@@ -34,6 +34,17 @@ namespace Harley
         public string Url => _url;
         /// <summary>What the page looks like right now (upside down: row 0 is the top). Null until the first frame.</summary>
         public Texture PageTexture => _frames > 0 ? (Texture)_tex : null;
+        /// <summary>The page the right way up (for the ambient light).</summary>
+        public Texture ShownTexture => _frames > 0 ? (_sharp != null ? (Texture)_sharp : _tex) : null;
+
+        /// <summary>What's playing in this window (asked every few seconds while someone wants to know).</summary>
+        public class MediaInfo { public string title = "", artist = "", captions = ""; public bool playing; public int time, duration; public float at; }
+        public MediaInfo Media { get; private set; }
+        int _mediaSeq;
+        float _nextMediaAsk = -1f, _mediaWantedUntil;
+
+        /// <summary>Keep Media fresh for the next few seconds.</summary>
+        public void WantMedia(float seconds = 6f) => _mediaWantedUntil = Mathf.Max(_mediaWantedUntil, Time.unscaledTime + seconds);
         /// <summary>YouTube TV (youtube.com/tv) is open: arrows / OK / Back drive it.</summary>
         public bool TvMode => (_url ?? "").Contains("youtube.com/tv");
         public float LastUsed { get; set; }
@@ -271,6 +282,17 @@ namespace Harley
                     if (sharpLayer) MakeSharpLayer();
                 }
             }
+            if (Time.unscaledTime < _mediaWantedUntil && Time.unscaledTime >= _nextMediaAsk)
+            {
+                _nextMediaAsk = Time.unscaledTime + 2f;
+                _web.Call("queryMedia");
+            }
+            int mseq = _web.Call<int>("getMediaSeq");
+            if (mseq != _mediaSeq)
+            {
+                _mediaSeq = mseq;
+                Media = ParseMedia(_web.Call<string>("getMediaJson"));
+            }
             if (Time.unscaledTime >= _nextInfo)
             {
                 _nextInfo = Time.unscaledTime + 0.5f;
@@ -482,6 +504,25 @@ namespace Harley
         }
 
         public void Close() => Destroy(gameObject);
+
+        static MediaInfo ParseMedia(string raw)
+        {
+            try
+            {
+                // evaluateJavascript hands back a JSON string literal holding our JSON
+                if (!(MiniJson.Parse(raw ?? "") is string inner) || inner.Length == 0) return null;
+                if (!(MiniJson.Parse(inner) is Dictionary<string, object> d)) return null;
+                return new MediaInfo
+                {
+                    title = d.Str("title") ?? "", artist = d.Str("artist") ?? "", captions = d.Str("captions") ?? "",
+                    playing = d.TryGetValue("playing", out var p) && p is bool b && b,
+                    time = d.TryGetValue("time", out var t) ? Convert.ToInt32(t) : 0,
+                    duration = d.TryGetValue("duration", out var u) ? Convert.ToInt32(u) : 0,
+                    at = Time.unscaledTime,
+                };
+            }
+            catch { return null; }
+        }
 
         void OnApplicationPause(bool paused)
         {

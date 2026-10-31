@@ -65,7 +65,7 @@ namespace Harley
         readonly List<(PanelButton card, Image frame, int option)> _views = new List<(PanelButton, Image, int)>();
         TextMeshProUGUI _title, _subtitle, _talkTitle, _talkSub;
         PanelButton _talk;
-        CardRef _fetch, _fight, _learn, _computer, _forget;
+        CardRef _fetch, _fight, _learn, _computer, _forget, _ambient, _watch;
         int _tab;
         float _forgetArmedUntil;
 
@@ -215,8 +215,10 @@ namespace Harley
             float sy = Top + rows * (h + 10) + 6;
             Section(p, "SCREENS", sy);
             float cw = (CW - 12f) / 2f;
-            MakeCard(p, X0, sy + 22, cw, 60, "apps", "Apps", "open a screen", OpenApps);
-            MakeCard(p, X0 + cw + 12, sy + 22, cw, 60, "screens", "Screens here", "bring them to you", () => { if (head != null) HarleyWindows.Recenter(head); });
+            MakeCard(p, X0, sy + 22, cw, 52, "apps", "Apps", "open a screen", OpenApps);
+            MakeCard(p, X0 + cw + 12, sy + 22, cw, 52, "screens", "Screens here", "bring them to you", () => { if (head != null) HarleyWindows.Recenter(head); });
+            _ambient = MakeCard(p, X0, sy + 84, cw, 52, "ambient", "Ambient light", "screen colours on your walls", () => { HarleyAmbient.Instance?.Toggle(); _nextStatus = 0f; });
+            _watch = MakeCard(p, X0 + cw + 12, sy + 84, cw, 52, "watch", "Watch together", "Harley watches with you", () => { HarleyWatch.Instance?.Toggle(); _nextStatus = 0f; });
         }
 
         void BuildSettings(RectTransform p)
@@ -470,6 +472,18 @@ namespace Harley
             // World
             int sel = HarleyWorld.Instance != null ? HarleyWorld.Instance.Selected : -1;
             foreach (var (card, frame, option) in _views) frame.enabled = option == sel;
+            if (_ambient != null)
+            {
+                bool on = HarleyAmbient.Instance != null && HarleyAmbient.Instance.On;
+                _ambient.button.baseColor = on ? CardOn : Card;
+                _ambient.sub.text = on ? "on · tap to turn off" : "screen colours on your walls";
+            }
+            if (_watch != null)
+            {
+                bool on = HarleyWatch.Instance != null && HarleyWatch.Instance.On;
+                _watch.button.baseColor = on ? CardOn : Card;
+                _watch.sub.text = on ? "watching · tap to stop" : "Harley watches with you";
+            }
 
             // Settings
             foreach (var t in _toggles)

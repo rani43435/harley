@@ -161,6 +161,7 @@ namespace Harley
                 // Own eyes for objects (YOLO, on the headset) and the language lessons
                 if (!FindAnyObjectByType<HarleyObjectSight>()) new GameObject("Harley Object Sight").AddComponent<HarleyObjectSight>();
                 if (!GetComponent<HarleyLanguage>()) gameObject.AddComponent<HarleyLanguage>().brain = this;
+                if (!GetComponent<HarleyWatch>()) gameObject.AddComponent<HarleyWatch>().brain = this;
             }
             if (greetOnStart)
             {
@@ -206,7 +207,7 @@ namespace Harley
             PumpLesson();
 
             // Say something on its own now and then (not during a language lesson)
-            bool lesson = HarleyLanguage.Instance != null && HarleyLanguage.Instance.Active;
+            bool lesson = (HarleyLanguage.Instance != null && HarleyLanguage.Instance.Active) || (HarleyWatch.Instance != null && HarleyWatch.Instance.On);
             if (lesson && Time.time >= _nextProactiveAt) ScheduleProactive();
             if (config.proactiveComments && !lesson && Time.time >= _nextProactiveAt)
             {
@@ -329,6 +330,17 @@ namespace Harley
         }
 
         string _pendingLesson;
+
+        /// <summary>What Harley said last (watch together remembers its comments).</summary>
+        public string LastSay { get; private set; }
+
+        /// <summary>Watch together: a look at the video now (with the picture). False if busy.</summary>
+        public bool WatchLook(string text)
+        {
+            if (_requestRunning || _asleep) return false;
+            Ask(text, true, true);
+            return true;
+        }
 
         /// <summary>Language lesson steps: always answered (waits for a free moment, no cooldown).</summary>
         public void LessonEvent(string text)
@@ -525,6 +537,7 @@ namespace Harley
 
         void Apply(CompanionReply r)
         {
+            if (!string.IsNullOrWhiteSpace(r.say)) LastSay = r.say;
             if (memory != null)
             {
                 if (r.forget) memory.ForgetAll();
@@ -581,6 +594,12 @@ namespace Harley
                 {
                     if (HarleyScreens.Close(r.target) > 0) sounds?.Play(Sfx.ChirpDown, 1.2f, 0.6f);
                 }
+            }
+            else if (action == CompanionAction.WatchTogether || action == CompanionAction.AmbientLight)
+            {
+                bool on = !(r.target ?? "").Trim().ToLowerInvariant().StartsWith("off");
+                if (action == CompanionAction.WatchTogether) HarleyWatch.Instance?.Set(on);
+                else HarleyAmbient.Instance?.Set(on);
             }
             else if (action == CompanionAction.Computer)
             {
@@ -703,6 +722,8 @@ namespace Harley
                     "celebrate (arms up, spin and sparkles: for good news or a win), sleep (settle down on furniture and take a nap; any touch or word wakes you), " +
                     "open_app (open a screen for the player: target = an app name like YouTube, or 'App: what to search' like 'YouTube: lofi jazz' or 'Google: weather tomorrow', or a website address like wikipedia.org), " +
                     "close_app (target = the app to close, or 'all'), " +
+                    "watch_together (target on/off: watch the video in their window together with them, commenting now and then), " +
+                    "ambient_light (target on/off: the video's colours glow around the screen and on the wall behind it, and the room dims, like Ambilight), " +
                     "start_lesson (the player wants to practise or learn a language with things in their room: target = the language in English, like German), " +
                     "hide_and_seek (when the player wants to play hide and seek, or you invite them and they agree: say something like 'close your eyes and count to ten!' and you fly off to hide behind furniture; the game tells you when they find you).";
             }
@@ -725,7 +746,8 @@ namespace Harley
                 : "You are not connected to live information, so say so if they ask about today's news or weather.";
 
             string lessonBlock = (!window && HarleyLanguage.Instance != null ? HarleyLanguage.Instance.DescribeForPrompt() : "")
-                                 + (HarleyComputer.Instance != null ? HarleyComputer.Instance.DescribeForPrompt() : "");
+                                 + (HarleyComputer.Instance != null ? HarleyComputer.Instance.DescribeForPrompt() : "")
+                                 + (!window && HarleyWatch.Instance != null ? HarleyWatch.Instance.DescribeForPrompt() : "");
             return string.Format(world, config.companionName) + internalPocket + screensBlock + lessonBlock + @"
 You are a small, friendly robot about 35 cm tall: a glossy white shell with deep-purple panels, a big round head with two little cat-like ears, a black visor face where your big glowing purple eyes shine, round lights on the sides of your head that glow when you listen and think, a glowing purple core in your chest (your magic pocket), two short arms, and no legs: your body is a rounded pod and you float and fly.
 
